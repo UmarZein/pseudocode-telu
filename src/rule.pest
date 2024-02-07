@@ -1,0 +1,226 @@
+ident = @{ primitives?~keywords?~!NUMBER ~ (ASCII_ALPHANUMERIC | "_")+ }
+pathident = @{ident~("."~ident)*}
+WHITESPACE = _{ " " | "\r" | "\t" | "\n" }
+
+uint = @{ ASCII_NONZERO_DIGIT ~ ("_"? ~ ASCII_DIGIT)* | "0"}
+zint = @{ ASCII_DIGIT ~ ("_"? ~ ASCII_DIGIT)* }
+int = @{"-"?~uint}
+float = @{"-"?~uint~("."~zint*)?}
+bool = @{"true" | "false"}
+nil = @{"NIL"}
+char = @{'a'..'Z'}
+literal_primitives = _{
+    float|uint|int|bool|char|nil
+}
+literal = _{literal_primitives}
+COMMENT = _{ "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
+keywords = @{
+    "type" |
+    "to" |
+    "procedure" |
+    "algorithm" |
+    "endprocedure" |
+    "function" |
+    "in" |
+    "if" |
+    "then" |
+    "else" |
+    "endif" |
+    "endfunction" |
+    "program" |
+    "konstant" |
+    "kamus" |
+    "algoritma" |
+    "while" |
+    "do" |
+    "endwhile" |
+    "endprogram"
+}
+integer_type = {"integer"}
+real_type = {"real"}
+bool_type = {"bool"}
+
+
+primitives = _{
+    integer_type |
+    real_type |
+    bool_type
+}
+pointer_type = {
+    ("pointer" ~ "to" ~ typename)
+}
+user_type = @{ident}
+typename = _{
+    primitives 
+    | pointer_type
+    | user_type
+}
+
+const_type_field = {
+    ident
+    ~":"
+    ~typename
+    ~"="
+    ~literal
+}
+
+type_def = {
+    "type"
+    ~ ident
+    ~ "<"
+    ~ type_field*
+    ~ ">"
+}
+
+kamus = {
+    "kamus"
+    ~type_field*
+}
+
+type_field = {
+    (ident~(","~ident)*)
+    ~":"
+    ~typename
+}
+
+konstanta = {
+    "konstanta"
+    ~const_type_field*
+}
+
+param_io = {((^"in"~"/"~^"out")|^"in"|^"out")}
+
+parameter = {
+    param_io?
+    ~ type_field
+      
+}
+
+call = {
+    pathident ~ ("(" ~ (expr ~ (","~expr)* ~","?)? ~ ")")
+}
+
+expr       =   { prefix? ~ primary ~ postfix? ~ (infix ~ prefix? ~ primary ~ postfix? )* }
+    infix    =  _{ 
+                    add | sub | mul 
+                    | idv | div | pow | ge | gt
+                    | le | lt| equ | neq
+                }
+      add    =   { "+" } // Addition
+      sub    =   { "-" } // Subtraction
+      mul    =   { "*" } // Multiplication
+      div    =   { "/" } // Division
+      idv    =   { "div" } // integer Division
+      neq    =   { "!=" } // Not Equal
+      equ    =   { "==" } // Equal
+      pow    =   { "^" } // Exponentiation
+      lt    =   { "<" } // Exponentiation
+      le    =   { "<=" } // Exponentiation
+      gt    =   { ">" } // Exponentiation
+      ge    =   { ">=" } // Exponentiation
+    prefix   =  _{ neg }
+      neg    =   { "-" } // Negation
+    postfix  =  _{ !"nope"~"nope"}
+    primary  =  _{ literal 
+    | call
+    | pathident
+    | "(" ~ expr ~ ")" }
+
+algoritma = {
+    "algoritma"
+    ~stmt*
+}
+procedure_def = {
+    "procedure"
+    ~ ident
+    ~ "("
+    ~ (parameter ~ (","~parameter)*)?
+    ~ ")"
+    ~konstanta?
+    ~kamus?
+    ~algoritma
+    ~"endprocedure"
+}
+
+function_def = {
+    "function"
+    ~ ident
+    ~ "("
+    ~ (parameter ~ (","~parameter)*)?
+    ~ ")"
+    ~ "->"
+    ~ typename
+    ~konstanta?
+    ~kamus?
+    ~algoritma
+    ~"endfunction"
+    }
+
+typealias = {
+    "type"
+    ~ident 
+    ~":"
+    ~typename
+}
+retstmt = {
+    "return" ~ expr
+}
+asgnstmt = {
+    pathident
+    ~ "<-"
+    ~ expr
+}
+ifstmt = {
+    "if"
+    ~ expr
+    ~ "then"
+    ~ stmt
+    ~ (
+        (
+            "else"~"if"
+            ~expr
+            ~"then"
+            ~stmt
+        )*
+        ~(
+            "else"
+            ~stmt
+        )
+    )?
+    ~ "endif"
+}
+whlstmt = {
+    "while"
+    ~expr
+    ~"do"
+    ~stmt*
+    ~"endwhile"
+}
+stmt = _{
+    retstmt
+    | ifstmt
+    | asgnstmt
+    | whlstmt
+    | expr
+}
+
+
+
+mainprogram = {
+    "program"
+    ~ident
+    ~konstanta?
+    ~kamus?
+    ~algoritma
+    ~"endprogram"
+}
+
+program = _{
+    (
+    procedure_def
+    | function_def
+    | type_def
+    | typealias
+    | mainprogram
+    )*
+}

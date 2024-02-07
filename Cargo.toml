@@ -1,0 +1,15 @@
+[package]
+name = "telkom_university_pseudocode"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+itertools = "0.10.5"
+lazy_static = "1.4.0"
+pest = { version = "2.7.6", features = ["pretty-print"] }
+pest_derive = "2.7.6"
+serde = { version = "1.0.196", features = ["derive"] }
+serde_json = "1.0.113"
+inkwell = { version = "0.4.0", features = ["llvm17-0"] }
