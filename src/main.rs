@@ -117,63 +117,57 @@ fn main() {
     println!("{}",TargetMachine::get_default_triple().as_str().to_str().unwrap());
     println!("cur dir = {}", std::env::current_dir().unwrap().display()    );
 
-    let context = Context::create();
-    let module = context.create_module("my_module");
-    let builder = context.create_builder();
-    //let execution_engine = module.create_jit_execution_engine(OptimizationLevel::Default).unwrap();
+    // let context = Context::create();
+    // let module = context.create_module("my_module");
+    // let builder = context.create_builder();
+    // //let execution_engine = module.create_jit_execution_engine(OptimizationLevel::Default).unwrap();
 
 
-    let int32 = context.i32_type();
-    let int8ptr = context.i8_type().ptr_type(AddressSpace::default());
-    let printf_types = int32.fn_type(&[int8ptr.into()], true);
-    let printf = module.add_function("printf", printf_types, Some(Linkage::External));
-    
+    // let int32 = context.i32_type();
+    // let int8ptr = context.i8_type().ptr_type(AddressSpace::default());
+    // let printf_types = int32.fn_type(&[int8ptr.into()], true);
+    // let printf = module.add_function("printf", printf_types, Some(Linkage::External));
+    // 
 
-    let func_out = context.i32_type();
-    let func_types = func_out.fn_type(&[], false);
-    let func = module.add_function("main", func_types, None);
-    let func_block = context.append_basic_block(func, "main");
-    builder.position_at_end(func_block);
+    // let func_out = context.i32_type();
+    // let func_types = func_out.fn_type(&[], false);
+    // let func = module.add_function("main", func_types, None);
+    // let func_block = context.append_basic_block(func, "main");
+    // builder.position_at_end(func_block);
 
 
-    let helloworld = builder.build_global_string_ptr("Hello, %lli!", "hey").unwrap();
-    println!("true={0}",true as u64);
-    println!("false={0}",false as u64);
-    let twoval: BasicValueEnum = context.i64_type().const_int({
-        let x:i64 = 123123123456789;
-        println!("{x:0b},{x}"); 
-        println!("{0:0b} {0}",(x as u64)); 
-        println!("{:0b}",(x as u64).wrapping_add(u64::MAX/2 + 1)); 
-        (x as u64)
-    }, false).into();
-    let twovar = builder.build_alloca(context.i64_type(), "twotwo").unwrap();
-    builder.build_store(twovar, twoval).unwrap();    
-    let test123 = builder.build_load(context.i64_type(), twovar, "test123").unwrap();
+    // let helloworld = builder.build_global_string_ptr("Hello, %lli!", "hey").unwrap();
+    // println!("true={0}",true as u64);
+    // println!("false={0}",false as u64);
+    // let twoval: BasicValueEnum = context.i64_type().const_int({
+    //     let x:i64 = 123123123456789;
+    //     println!("{x:0b},{x}"); 
+    //     println!("{0:0b} {0}",(x as u64)); 
+    //     println!("{:0b}",(x as u64).wrapping_add(u64::MAX/2 + 1)); 
+    //     (x as u64)
+    // }, false).into();
+    // let twovar = builder.build_alloca(context.i64_type(), "twotwo").unwrap();
+    // builder.build_store(twovar, twoval).unwrap();    
+    // let test123 = builder.build_load(context.i64_type(), twovar, "test123").unwrap();
 
-    let pcall = builder.build_direct_call(printf, &[helloworld.as_pointer_value().into(), test123.into()], "pcall1").unwrap()
-    .try_as_basic_value()
-    .left()
-    .unwrap();
-    
+    // let pcall = builder.build_direct_call(
+    //     printf, 
+    //     &[
+    //         helloworld.as_pointer_value().into(), 
+    //         test123.into()
+    //     ], 
+    //     "pcall1").unwrap()
+    // .try_as_basic_value()
+    // .left()
+    // .unwrap();
+    // 
+    // if let BasicValueEnum::IntValue(x) = pcall{
+    //     println!("pcall = intvalue {}",x.to_string());
+    // } else {
+    //     println!("error here!");
+    // }
 
-{
-        let tmp = "tmp".to_string();
-        let mut v = vec![];
-        for i in 0..10{
-            if i>4{
-                println!("{tmp}");
-            } else {
-                v.push(tmp.clone())
-            }
-        }
-    }
-    if let BasicValueEnum::IntValue(x) = pcall{
-        println!("pcall = intvalue {}",x.to_string());
-    } else {
-        println!("error here!");
-    }
-
-    let x = builder.build_return(Some(&func_out.const_int(0,true)));
+    // let x = builder.build_return(Some(&func_out.const_int(0,true)));
 
     //let f= unsafe{execution_engine.get_function("main").unwrap()}; 
     //unsafe{
@@ -194,23 +188,26 @@ fn main() {
             CodeModel::Medium,//TODO: change to Small but idk if it will break things
         )
         .unwrap();
-    println!("AYE");
-    println!("{}",module.print_to_string().to_string());
-    println!("HO");
-    machine.write_to_file(&module, FileType::Object, "exm.o".as_ref()).unwrap();
-    machine.write_to_file(&module, FileType::Assembly, "exm.asm".as_ref()).unwrap();
-    std::process::Command::new("clang-17")
-        .args(["exm.o","-o","output_program"])
-        .spawn().unwrap()
-        .wait().unwrap();
-    std::process::Command::new("./output_program").spawn().unwrap().wait().unwrap();
-    std::process::Command::new("rm")
-        .arg("./output_program").spawn().unwrap();
-    let p = PROGRAM_EX.clone();
+
+    // println!("AYE");
+    // println!("{}",module.print_to_string().to_string());
+    // println!("HO");
+
+    // machine.write_to_file(&module, FileType::Object, "exm.o".as_ref()).unwrap();
+    // machine.write_to_file(&module, FileType::Assembly, "exm.asm".as_ref()).unwrap();
+    // std::process::Command::new("clang-17")
+    //     .args(["exm.o","-o","output_program"])
+    //     .spawn().unwrap()
+    //     .wait().unwrap();
+    // std::process::Command::new("./output_program").spawn().unwrap().wait().unwrap();
+    // std::process::Command::new("rm")
+    //     .arg("./output_program").spawn().unwrap();
+
+    // let p = PROGRAM_EX.clone();
     // let e = EXPR_EX.clone();
-    let prog = FCParser::parse(Rule::program, p.clone()).unwrap();
+    // let prog = FCParser::parse(Rule::program, p.clone()).unwrap();
     // let exp = FCParser::parse(Rule::expr, e.clone()).unwrap();
-    print_pairs(prog,0);
+    // print_pairs(prog,0);
     // print_pairs(exp.clone(),0);
     // let parsed = parse_expr(exp);
     // println!("{parsed:#?}")
@@ -220,16 +217,20 @@ fn main() {
     let context = Context::create();
     let module = context.create_module("program");
     let builder = context.create_builder();
-    let cg=compile::Codegen{
+    let mut cg=compile::Codegen{
         context: &context,
         module: &module,
         builder: &builder,
-        // functions: &mut HashMap::new(),
-        // variables: &mut HashMap::new(),    
-        program_name: String::from("program_out")
+        functions: &mut HashMap::new(),
+        stackmap: &mut HashMap::new(),    
+        paramstack: &mut HashMap::new(),    
+        // program_name: String::from("program_out")
     };
-    println!("file!()={}",file!());
-    //cg.compile_program("/program_ex.txt");
+    cg.compile_program("./simple_program.tups");
+    println!("{}",module.print_to_string().to_string());
+    machine.write_to_file(&module, FileType::Object, "program.o".as_ref()).unwrap();
+    println!("important: please link with math library (e.x: clang-17 -lm program.o -o program)");
+
 }
 const PROGRAM_EX: &str = include_str!("program_ex.txt");
 const EXPR_EX: &str = include_str!("expr_ex.txt");

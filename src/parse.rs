@@ -51,6 +51,14 @@ pub enum Expr{
 }
 
 
+impl Expr{
+    pub fn is_nil(&self)->bool{
+        match self{
+            Self::Nil => true,
+            _ => false
+        }
+    }
+}
 
 pub fn parse_expr(pairs: Pairs<Rule>) -> Expr {
     use Rule as R;
