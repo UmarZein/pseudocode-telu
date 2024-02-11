@@ -1,14 +1,13 @@
-// TODO 
 //
-// CURRENTLY, this doesnt work
 //
-// function foo(a: integer) -> integer
-// algoritma 
-//   return a 
-// endfunction
 //
-// because we need to use get_nth_param(0) rather than the stackmap which isnt connected to the
-// function call itself
+//
+// TODO
+// use phi nodes cuz apparently it's important
+//
+//
+//
+//
 //
 //
 use inkwell::context::Context;
@@ -24,7 +23,7 @@ use inkwell::{
 
 use inkwell::builder::Builder;
 use inkwell::types::{BasicMetadataTypeEnum, FunctionType, BasicTypeEnum, BasicType};
-use inkwell::values::{BasicMetadataValueEnum, BasicValueEnum, FloatValue, FunctionValue, PointerValue, BasicValue, InstructionOpcode, AsValueRef};
+use inkwell::values::{BasicMetadataValueEnum, BasicValueEnum, FloatValue, FunctionValue, PointerValue, BasicValue, InstructionOpcode, AsValueRef, InstructionValue};
 use inkwell::FloatPredicate;
 
 use pest::Parser;
@@ -43,7 +42,7 @@ pub struct Codegen<'a, 'ctx> {
     pub module: &'a Module<'ctx>,
     pub builder: &'a Builder<'ctx>,
     pub functions: &'a mut HashMap<String, Vec<FunctionValue<'ctx>>>,
-    pub stackmap: &'a mut HashMap<String, (PointerValue<'ctx>,BasicTypeEnum<'ctx>)>,
+    pub locals: &'a mut HashMap<(FunctionValue<'ctx>,String), (PointerValue<'ctx>,BasicTypeEnum<'ctx>)>,
     pub paramstack: &'a mut HashMap<String, BasicValueEnum<'ctx>>,
     // pub program_name: String,
 }
@@ -99,7 +98,7 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
         let code = std::fs::read_to_string(source_filename).unwrap();
         let parsed = FCParser::parse(Rule::program, &code).unwrap();
         print_pairs(parsed.clone(), 0);
-        let main_type = self.context.i32_type().fn_type(&[], false);
+        let main_type = self.context.i64_type().fn_type(&[], false);
         let main_fn = self.add_function("main", main_type, None);
         self.context.append_basic_block(main_fn, "mainf_entry");
 
@@ -107,6 +106,9 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
         self.add_output();
         // self.add_powi();
         // self.add_powf();
+        let _ = parsed.clone().map(|p|self.declare_funcs(p)).collect::<Vec<()>>();
+        println!("done declare_funcs(...)... now, locals is:");
+        println!("{:#?}",self.locals);
         let _ = parsed.map(|p|self.compile_pest_output(p)).collect::<Vec<()>>();
     }
     
@@ -148,31 +150,36 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
     }
     fn expr_type(
         context: &'ctx Context, 
-        stackmap: &HashMap<String, (PointerValue<'ctx>,BasicTypeEnum<'ctx>)>, 
+        locals: &HashMap<(FunctionValue<'ctx>,String), (PointerValue<'ctx>,BasicTypeEnum<'ctx>)>, 
         paramstack: &HashMap<String, BasicValueEnum<'ctx>>, 
         functions: &HashMap<String, Vec<FunctionValue<'ctx>>>,
+        cur_func: &FunctionValue<'ctx>,
         expr: &Expr
     ) -> BasicTypeEnum<'ctx> {
         use Expr as E;
         match expr{
-            E::Equ(bee) => context.bool_type().as_basic_type_enum(),
-            E::Neq(bee) => context.bool_type().as_basic_type_enum(),
-            E:: Gt(bee) => context.bool_type().as_basic_type_enum(),
-            E:: Lt(bee) => context.bool_type().as_basic_type_enum(),
-            E:: Ge(bee) => context.bool_type().as_basic_type_enum(),
-            E:: Le(bee) => context.bool_type().as_basic_type_enum(),
-            E::Add(bee) => Self::expr_type(context, stackmap, paramstack, functions, &bee.as_ref().clone().0),
-            E::Sub(bee) => Self::expr_type(context, stackmap, paramstack, functions, &bee.as_ref().clone().0),
-            E::Mul(bee) => Self::expr_type(context, stackmap, paramstack, functions, &bee.as_ref().clone().0),
+            E::Equ(_)| 
+            E::Neq(_)| 
+            E:: Gt(_)| 
+            E:: Lt(_)| 
+            E:: Ge(_)| 
+            E:: Le(_) => context.bool_type().as_basic_type_enum(),
+            E::Add(bee)| 
+            E::Sub(bee)| 
+            E::Mul(bee) => Self::expr_type(context, locals, paramstack, functions, cur_func, &bee.as_ref().clone().0),
             E::Div(bee) => {
                 todo!("unimplemented: im confused whether Div should handle Idv's job as wel?")
             },
             E::Idv(bee) => context.i64_type().as_basic_type_enum(),
             E::Pow(bee) => context.f64_type().as_basic_type_enum(),
-            E::Neg(be) => Self::expr_type(context, stackmap, paramstack, functions, be.as_ref()),
-            E::Pathident(s) => paramstack.get(&s.clone()).map(|x|x.get_type()).unwrap_or(stackmap.get(&s.clone()).unwrap().1),
+            E::Neg(be) => Self::expr_type(context, locals, paramstack, functions, cur_func, be.as_ref()),
+            E::Pathident(s) => paramstack
+                .get(&s.clone())
+                .map(|x|x.get_type())
+                .unwrap_or(
+                    locals.get(&(*cur_func,s.clone())).unwrap().1),
             E::Call(s, ve) => {
-                let argtypes: Vec<_> = ve.iter().map(|e|Self::expr_type(context, stackmap, paramstack, functions, &e)).collect();
+                let argtypes: Vec<_> = ve.iter().map(|e|Self::expr_type(context, locals, paramstack, functions, cur_func, &e)).collect();
                 // the piece of code below is beautifully ugly
                 functions.get(&s.clone()).unwrap().iter()
                     .find(|&e|{
@@ -191,6 +198,7 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
         }
     }
     fn compile_expr(&self, expr: Expr) -> Option<BasicValueEnum<'ctx>> {
+        //println!("compile_expr({expr:?})");
         match expr{
             Expr::Equ(bee) => {
                 let (a,b) = self.compile_beexpr(&bee);
@@ -426,18 +434,31 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
             },
             Expr::Pathident(path) => {
                 if let Some(x)=self.paramstack.get(&path){
+                    //println!("found {path} in paramstack");
                     Some(*x)
                 }else{ 
-                    let (var_ptr, var_typ) = self.stackmap.get(&path).expect(&format!("did not find {path}"));
-                    let val = self.builder.build_load(var_typ.clone(), var_ptr.clone(), "loadpath").unwrap();
-                    Some(val)
+                    let (var_ptr, var_typ) = self.locals.get(
+                        &(self.builder.get_insert_block().unwrap().get_parent().unwrap(),path.clone())
+                        ).expect(&format!("did not find {path}"));
+                    //println!("found {path} in locals");
+                    use BasicTypeEnum as BTE;
+                    Some(match var_typ{
+                        BTE::ArrayType(_)   => todo!(),
+                        BTE::FloatType(t)   => self.builder.build_load(var_typ.into_float_type(), *var_ptr, "loadpath").unwrap(),
+                        BTE::IntType(t)     => self.builder.build_load(var_typ.into_int_type(), *var_ptr, "loadpath").unwrap(),
+                        BTE::PointerType(t) => self.builder.build_load(var_typ.into_pointer_type(), *var_ptr, "loadpath").unwrap(),
+                        BTE::StructType(_)  => todo!(),
+                        BTE::VectorType(_)  => todo!(),
+                    })
                 }
             },
 
             Expr::Call(name, args) => {
                 if &name=="output"{
                     for arg in &args{
-                        let argtype = Self::expr_type(self.context, self.stackmap, self.paramstack, self.functions, &arg);
+                        let argtype = Self::expr_type(
+                            self.context, self.locals, self.paramstack, self.functions,
+                            &self.builder.get_insert_block().unwrap().get_parent().unwrap(), &arg);
                         let func = self.find_function(&name, &[argtype.into()]).unwrap();
                         let call = self.builder.build_direct_call(func, 
                             &[self.compile_expr(arg.clone()).unwrap().into()], 
@@ -453,9 +474,10 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                 let argtypes: Vec<_> = args.iter().map(|e|
                     Self::expr_type(
                         self.context, 
-                        self.stackmap, 
+                        self.locals, 
                         self.paramstack, 
                         self.functions, 
+                        &self.builder.get_insert_block().unwrap().get_parent().unwrap(),
                         &e)).collect();
                 let func = self.find_function(&name, &argtypes).expect(&format!("could not find function with name {name} with {} arguments",argtypes.len()));
                 //(&name).unwrap();
@@ -481,178 +503,10 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
             BasicTypeEnum::VectorType(_) => unimplemented!(),
         }
     }
-    // fn declare_funcs(&mut self, pair: Pair<Rule>){
-    //     use Rule as R;
-    //     match pair.as_rule(){
-    //         R::typealias => todo!(),
-    //         R::procedure_def => {
-    //             let mut i = pair.into_inner();
-    //             let name = i.next().unwrap().as_str();//
-    //             let mut intype_blueprint: Vec<(bool,bool,String,BasicTypeEnum)> = vec![];
-    //             let mut intypes: Vec<BasicMetadataTypeEnum> = vec![];
-    //             let mut outtype = self.context.i8_type().as_basic_type_enum();
-    //             let parameters: Vec<_> = i.clone().filter(|x|x.as_rule()==R::parameter)
-    //                 .map(|x|Self::process_parameter(&self.context,x)).collect();
-    //             for (inv,outv, vars, typ) in parameters{
-    //                 for var in vars{
-    //                     intype_blueprint.push((inv,outv,var.clone(),typ));
-    //                     intypes.push(typ.into());
-    //                 }
-    //             }
-    //             let context = self.context;
-    //             let module = self.module;
-    //             let functype = context.void_type().clone().fn_type(&intypes, false).clone();
-    //             let func = self.module.add_function(name, functype, None);
-    //             match self.functions.get_mut(&name.to_string()){
-    //                 None => {self.functions.insert(name.to_string(), vec![func.clone()]);},
-    //                 Some(x) => x.push(func.clone())
-    //             };
-    //             let funcblock = self.context.append_basic_block(func, "entry");
-    //             self.builder.position_at_end(funcblock);
-    //             while let Some(x) = i.next(){
-    //                 match x.as_rule(){
-    //                     R::konstanta | R::kamus | R::algoritma => self.compile_pest_output(x),
-    //                     _ => unreachable!()
-    //                 }
-    //             }
-    //         },
-    //         R::function_def => {
-    //             let mut i = pair.into_inner();
-    //             let name = i.next().unwrap().as_str();//
-    //             assert!(name!="main");
-    //             let mut intype_blueprint: Vec<(bool,bool,String,BasicTypeEnum)> = vec![];
-    //             let mut intypes: Vec<BasicMetadataTypeEnum> = vec![];
-    //             let mut outtype = self.context.i8_type().as_basic_type_enum();
-    //             let parameters: Vec<_> = i.clone().filter(|x|x.as_rule()==R::parameter)
-    //                 .map(|x|Self::process_parameter(&self.context,x)).collect();
-    //             for (inv,outv, vars, typ) in parameters.clone(){
-    //                 for var in vars{
-    //                     intype_blueprint.push((inv,outv,var.clone(),typ));
-    //                     intypes.push(typ.into());
-    //                 }
-    //             }
-
-
-    //             let typename = i.clone().find(|x|{
-    //                 match x.as_rule(){
-    //                     R::integer_type|R::real_type|R::bool_type
-    //                     |R::pointer_type|R::user_type => true,
-    //                     _ => false
-    //                 }
-    //             }).unwrap();
-    //             let context = self.context;
-    //             let module = self.module;
-    //             let outtyp = Self::pair_to_type(&context, typename);
-    //             let functype = outtyp.clone().fn_type(&intypes, false).clone();
-    //             let func = self.module.add_function(name, functype, None);
-    //             match self.functions.get_mut(&name.to_string()){
-    //                 None => {self.functions.insert(name.to_string(), vec![func.clone()]);},
-    //                 Some(x) => x.push(func.clone())
-    //             };
-    //             let funcblock = self.context.append_basic_block(func, "entry");
-    //             self.builder.position_at_end(funcblock);
-    //             let mut parami =0;
-    //             for (inv,outv, vars, typ) in parameters.iter(){
-    //                 for var in vars{
-    //                     let p = func.get_nth_param(parami).unwrap();
-    //                     let ptr = self.builder.build_alloca(*typ, &var).unwrap();
-    //                     self.stackmap.insert(var.clone(), (ptr,*typ));
-    //                     self.builder.build_store(ptr, p).unwrap();
-    //                     parami+=1;
-    //                     // self.stackmap.insert(ident.clone().to_string(), (var_ptr.clone(),ty.clone()));
-    //                     // self.builder.build_store(var_ptr.into(), self.pair_to_value(val)).unwrap();
-
-    //                     // 
-    //                 }
-    //             }
-
-    //             while let Some(x) = i.next(){
-    //                 match x.as_rule(){
-    //                     R::konstanta | R::kamus => self.compile_pest_output(x),
-    //                     _ => continue
-    //                 }
-    //             }
-
-    //         },
-    //         R::mainprogram => {
-    //             let main_fn = self.module.get_function("main").unwrap();
-    //             let entry =main_fn.get_first_basic_block().unwrap();
-    //             self.builder.position_at_end(entry);
-    //             let mut i = pair.into_inner(); 
-    //         },
-    //         R::konstanta => {
-    //             let j = pair.into_inner();
-    //             //ctf = const type field
-    //             for ctf in j{
-    //                 let mut k = ctf.into_inner();
-    //                 let ident = k.next().unwrap().as_str();
-    //                 let module = self.module;
-    //                 let context = self.context;
-    //                 let ty = Self::pair_to_type(&context, k.next().unwrap());
-    //                 //let ftype = ty.fn_type(&[], false);
-    //                 //let func = module.add_function("name", ftype, None);
-    //                 let var_ptr = self.builder.build_alloca(ty.clone(), ident).unwrap();
-    //                 
-    //                 let val = k.next().unwrap();
-    //                 self.stackmap.insert(ident.clone().to_string(), (var_ptr.clone(),ty.clone()));
-    //                 self.builder.build_store(var_ptr.into(), self.pair_to_value(val)).unwrap();
-    //             }
-    //         },
-    //         R::kamus => {
-    //             let j = pair.into_inner();
-    //             for type_decl in j{
-    //                 let mut k = type_decl.into_inner().rev();
-    //                 let context = self.context;
-    //                 let ty = Self::pair_to_type(&context, k.next().unwrap());
-    //                 let var_ptrs: Vec<_> = k.map(|x|{
-    //                     let name = x.as_str();
-    //                     let var_ptr = self.builder.build_alloca(ty, x.as_str()).unwrap();
-    //                     self.stackmap.insert(name.clone().to_string(), (var_ptr.clone(),ty.clone()));
-    //                 }).collect();
-    //             }
-
-    //         },
-    //         _ => return
-    //     }
-
-    // }
-
-    fn compile_pest_output(&mut self, pair: Pair<Rule>){
+    fn declare_funcs(&mut self, pair: Pair<Rule>){
+        //println!("declare_funcs({pair:?})");
         use Rule as R;
         match pair.as_rule(){
-            R::expr => {
-                let exp = parse_expr(pair.into_inner());
-                self.compile_expr(exp);
-            }
-            R::asgnstmt => {
-                let mut i = pair.into_inner();
-                let path = i.next().unwrap().as_str();
-                let expr = parse_expr(i.next().unwrap().into_inner());
-                let compiled_expr = self.compile_expr(expr).expect("void assignment");
-                let (var_ptr,var_typ) = self.stackmap.get(&path.to_string()).unwrap();
-                self.builder.build_store(var_ptr.clone(), compiled_expr);
-            }
-            R::retstmt => {
-                let exp = pair.into_inner();
-                let exp = parse_expr(exp);
-                if exp.is_nil(){
-                    todo!("NIL return is not supported yet")
-                }
-                let ibl = self.builder.get_insert_block().unwrap();
-                let bname = ibl.get_name().to_str();
-                if bname.unwrap() == "mainf_entry"{
-                    let etyp=Self::expr_type(self.context, self.stackmap, self.paramstack, self.functions, &exp);
-                    if etyp.is_int_type()==false{
-                        panic!("main return should be int")
-                    }
-                }
-                // self.builder.build_return(self.compile_expr(exp).map(|x|&x)); <-- WHY DOESNT THIS WORK!??!?
-                if let Some(compiled_exp) = self.compile_expr(exp){
-                    self.builder.build_return(Some(&compiled_exp));
-                } else {
-                    self.builder.build_return(None);
-                }
-            }
             R::typealias => todo!(),
             R::procedure_def => {
                 let mut i = pair.into_inner();
@@ -680,8 +534,8 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                 self.builder.position_at_end(funcblock);
                 while let Some(x) = i.next(){
                     match x.as_rule(){
-                        R::konstanta | R::kamus | R::algoritma => self.compile_pest_output(x),
-                        _ => unreachable!()
+                        R::konstanta | R::kamus => self.declare_funcs(x),
+                        _ => continue
                     }
                 }
             },
@@ -720,27 +574,21 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                 };
                 let funcblock = self.context.append_basic_block(func, "entry");
                 self.builder.position_at_end(funcblock);
-                let mut parami =0;
+                let mut parami = 0;
                 for (inv,outv, vars, typ) in parameters.iter(){
-                    for var in vars{
+                    for var in vars.iter().rev(){
                         let p = func.get_nth_param(parami).unwrap();
                         let ptr = self.builder.build_alloca(*typ, &var).unwrap();
-                        self.stackmap.insert(var.clone(), (ptr,*typ));
+                        self.locals.insert((func,var.clone()), (ptr,*typ));
                         self.builder.build_store(ptr, p).unwrap();
                         parami+=1;
-                        // self.stackmap.insert(ident.clone().to_string(), (var_ptr.clone(),ty.clone()));
-                        // self.builder.build_store(var_ptr.into(), self.pair_to_value(val)).unwrap();
-
-                        // 
                     }
                 }
 
                 while let Some(x) = i.next(){
                     match x.as_rule(){
-                        R::konstanta | R::kamus | R::algoritma => self.compile_pest_output(x),
-                        R::integer_type|R::real_type|R::bool_type
-                        |R::pointer_type|R::user_type|R::parameter => continue,
-                        _ => unreachable!("{:?}",x.as_rule())
+                        R::konstanta | R::kamus => self.declare_funcs(x),
+                        _ => continue
                     }
                 }
 
@@ -750,8 +598,7 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                 let entry =main_fn.get_first_basic_block().unwrap();
                 self.builder.position_at_end(entry);
                 let mut i = pair.into_inner(); 
-                let program_name = i.next().unwrap().as_str().to_string();
-                let _ = i.map(|p|self.compile_pest_output(p)).collect::<Vec<()>>();
+                let _ = i.map(|p|self.declare_funcs(p)).collect::<Vec<()>>();
             },
             R::konstanta => {
                 let j = pair.into_inner();
@@ -765,27 +612,158 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                     //let ftype = ty.fn_type(&[], false);
                     //let func = module.add_function("name", ftype, None);
                     let var_ptr = self.builder.build_alloca(ty.clone(), ident).unwrap();
-                    
+                    let func = self.builder.get_insert_block().unwrap().get_parent().unwrap();
                     let val = k.next().unwrap();
-                    self.stackmap.insert(ident.clone().to_string(), (var_ptr.clone(),ty.clone()));
+                    self.locals.insert((func,ident.clone().to_string()), (var_ptr.clone(),ty.clone()));
                     self.builder.build_store(var_ptr.into(), self.pair_to_value(val)).unwrap();
                 }
             },
             R::kamus => {
                 let j = pair.into_inner();
+                let func = self.builder.get_insert_block().unwrap().get_parent().unwrap();
                 for type_decl in j{
                     let mut k = type_decl.into_inner().rev();
                     let context = self.context;
                     let ty = Self::pair_to_type(&context, k.next().unwrap());
                     let var_ptrs: Vec<_> = k.map(|x|{
                         let name = x.as_str();
+                        println!("kamus for {name}");
                         let var_ptr = self.builder.build_alloca(ty, x.as_str()).unwrap();
-                        self.stackmap.insert(name.clone().to_string(), (var_ptr.clone(),ty.clone()));
+                        self.locals.insert((func,name.clone().to_string()), (var_ptr.clone(),ty.clone()));
                     }).collect();
                 }
 
             },
-            R::algoritma => {
+            _ => return
+        }
+
+    }
+
+    fn compile_pest_output(&mut self, pair: Pair<Rule>){
+        //println!("compile_pest_output({})",pair.to_string());
+        use Rule as R;
+        match pair.as_rule(){
+            R::expr => {
+                let exp = parse_expr(pair.into_inner());
+                self.compile_expr(exp);
+            }
+            R::whlstmt => {
+                let mut i = pair.into_inner();
+                let cur_func = self.builder.get_insert_block().unwrap().get_parent().unwrap();
+                let checkblock = self.context.append_basic_block(cur_func, "check");
+                let contblock = self.context.append_basic_block(cur_func, "contblock");
+                let body = self.context.append_basic_block(cur_func, "whileblock");
+                let expr = parse_expr(i.next().unwrap().into_inner());
+                let compiled_expr = self.compile_expr(expr.clone()).unwrap().into_int_value();
+                self.builder.build_unconditional_branch(checkblock);
+                self.builder.position_at_end(checkblock);
+                self.builder.build_conditional_branch(compiled_expr, body, contblock);
+                self.builder.position_at_end(body);
+                self.compile_pest_output(i.next().unwrap());
+                let compiled_expr = self.compile_expr(expr).unwrap().into_int_value();
+                self.builder.build_conditional_branch(compiled_expr, body, contblock);
+                self.builder.position_at_end(contblock);
+            }
+            R::ifstmt => {
+                let mut i = pair.into_inner();
+                let cur_func = self.builder.get_insert_block().unwrap().get_parent().unwrap();
+                let contblock = self.context.append_basic_block(cur_func, "contblock");
+                loop {
+                    match (i.next(),i.next()){
+                        (Some(ifthat), Some(dothis)) => {
+                            //println!("if {ifthat:#?} then {dothis:#?}");
+                            let mut thenblock = self.context.append_basic_block(cur_func, "thenblock");
+                            let mut elseblock = self.context.append_basic_block(cur_func, "elseblock");
+                            let cond = parse_expr(ifthat.into_inner());
+                            let cond = self.compile_expr(cond).unwrap().into_int_value();
+                            self.builder.build_conditional_branch(cond, thenblock, elseblock);
+                            self.builder.position_at_end(thenblock);
+                            self.compile_pest_output(dothis);
+                            self.builder.build_unconditional_branch(contblock);
+                            self.builder.position_at_end(elseblock);
+                        },
+                        (Some(dothis), None) => {
+                            //println!("else");
+                            self.compile_pest_output(dothis);
+                            break;
+                        },
+                        _ => break
+                    }
+                }
+                self.builder.build_unconditional_branch(contblock);
+                self.builder.position_at_end(contblock);
+            }
+            R::asgnstmt => {
+                let mut i = pair.into_inner();
+                let path = i.next().unwrap().as_str();
+                let expr = parse_expr(i.next().unwrap().into_inner());
+                let compiled_expr = self.compile_expr(expr).expect("void assignment");
+                let func = self.builder.get_insert_block().unwrap().get_parent().unwrap();
+                let (var_ptr,var_typ) = self.locals.get(&(func,path.to_string())).unwrap();
+                self.builder.build_store(var_ptr.clone(), compiled_expr);
+            }
+            R::retstmt => {
+                let exp = pair.into_inner();
+                let exp = parse_expr(exp);
+                if exp.is_nil(){
+                    todo!("NIL return is not supported yet")
+                }
+                let ibl = self.builder.get_insert_block().unwrap();
+                let bname = ibl.get_name().to_str();
+                if bname.unwrap() == "mainf_entry"{
+                    let etyp=Self::expr_type(self.context, self.locals, self.paramstack, self.functions,
+                        &self.builder.get_insert_block().unwrap().get_parent().unwrap(),&exp);
+                    if etyp.is_int_type()==false{
+                        panic!("main return should be int")
+                    }
+                }
+                // self.builder.build_return(self.compile_expr(exp).map(|x|&x)); <-- WHY DOESNT THIS WORK!??!?
+                if let Some(compiled_exp) = self.compile_expr(exp){
+                    self.builder.build_return(Some(&compiled_exp));
+                } else {
+                    self.builder.build_return(None);
+                }
+            }
+            R::typealias => todo!(),
+            R::procedure_def => {
+                let mut i = pair.into_inner();
+                let name = i.next().unwrap().as_str();//
+                let func = self.module.get_function(name).unwrap();
+                self.builder.position_at_end(func.get_first_basic_block().unwrap());
+                while let Some(x) = i.next(){
+                    match x.as_rule(){
+                        R::algoritma => self.compile_pest_output(x),
+                        _ => unreachable!()
+                    }
+                }
+            },
+            R::function_def => {
+                let mut i = pair.into_inner();
+                let name = i.next().unwrap().as_str();//
+                assert!(name!="main");
+                let func = self.module.get_function(name).unwrap();
+                self.builder.position_at_end(func.get_first_basic_block().unwrap());
+                while let Some(x) = i.next(){
+                    match x.as_rule(){
+                        R::algoritma => self.compile_pest_output(x),
+                        R::integer_type|R::konstanta|R::kamus|R::real_type
+                        |R::bool_type|R::pointer_type|R::user_type|R::parameter => continue,
+                        _ => unreachable!("{:?}",x.as_rule())
+                    }
+                }
+                self.builder.build_return(None);
+
+            },
+            R::mainprogram => {
+                let main_fn = self.module.get_function("main").unwrap();
+                let entry =main_fn.get_first_basic_block().unwrap();
+                self.builder.position_at_end(entry);
+                let mut i = pair.into_inner(); 
+                let program_name = i.next().unwrap().as_str().to_string();
+                let _ = i.map(|p|self.compile_pest_output(p)).collect::<Vec<()>>();
+            },
+            R::konstanta|R::kamus => return,
+            R::algoritma|R::stmt0|R::stmt1 => {
                 let _ = pair.into_inner().map(|p|self.compile_pest_output(p)).collect::<Vec<()>>();
             }
             _ => unreachable!("reached rule {}",pair.as_rule().to_string())
@@ -810,6 +788,7 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
         let newline_fstr = self.builder.build_global_string_ptr("\n", "fstrld").unwrap();
         let i64_fstr = self.builder.build_global_string_ptr("%ld ", "fstrld").unwrap();
         let f64_fstr = self.builder.build_global_string_ptr("%f ", "fstrld").unwrap();
+        let bool_fstr = self.builder.build_global_string_ptr("%b ", "fstrld").unwrap();
         let printf = self.module.get_function("printf").unwrap();
         let name = "output".to_string();
         //
@@ -863,6 +842,24 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                 param.into()
             ], 
             "printf64").unwrap();
+        self.builder.build_return(None);
+        //
+        let ftype = self.context.void_type().fn_type(&[self.context.bool_type().into()], false);
+        let func = self.module.add_function("output", ftype, None);
+        match self.functions.get_mut(&name){
+            None => {self.functions.insert(name.clone(), vec![func.clone()]);},
+            Some(x) => x.push(func.clone())
+        };
+        let fblock = self.context.append_basic_block(func, "outputentrybool");
+        self.builder.position_at_end(fblock);
+        let param= func.get_first_param().unwrap();
+        let pcall = self.builder.build_direct_call(
+            printf, 
+            &[
+                bool_fstr.as_pointer_value().into(), 
+                param.into()
+            ], 
+            "printfbool").unwrap();
         self.builder.build_return(None);
 
     }

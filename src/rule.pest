@@ -10,7 +10,7 @@ bool = @{"true" | "false"}
 nil = @{"NIL"}
 char = @{'a'..'Z'}
 literal_primitives = _{
-    float|uint|int|bool|char|nil
+    float|uint|int|bool|nil
 }
 literal = _{literal_primitives}
 COMMENT = _{ "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
@@ -170,22 +170,27 @@ asgnstmt = {
     ~ "<-"
     ~ expr
 }
-ifstmt = {
+test={
     "if"
     ~ expr
+    ~ "then"}
+ifcond={expr}
+ifstmt = {
+    "if"
+    ~ ifcond
     ~ "then"
-    ~ stmt
+    ~ stmt0
     ~ (
         (
             "else"~"if"
-            ~expr
+            ~ifcond
             ~"then"
-            ~stmt
+            ~stmt0
         )*
         ~(
             "else"
-            ~stmt
-        )
+            ~stmt0
+        )?
     )?
     ~ "endif"
 }
@@ -193,9 +198,11 @@ whlstmt = {
     "while"
     ~expr
     ~"do"
-    ~stmt*
+    ~stmt0
     ~"endwhile"
 }
+stmt0 = {stmt*}
+stmt1 = {stmt+}
 stmt = _{
     retstmt
     | ifstmt

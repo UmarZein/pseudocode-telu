@@ -1,18 +1,15 @@
-function bar(x: integer)->integer
-algoritma 
-    return x+1
-endfunction
-function foo(a,b: integer)->integer
-algoritma 
-    return (a+1)*bar(b)
-endfunction
-program ProgramSaya
+program yomyman
 kamus
-    a,b: integer
-algoritma
-    a<-100
-    b<-20
-    a<-foo(a,b)
-    output(a,b)
+    i: integer
+algoritma 
+    i <- 0
+    while i<20 do 
+        if i>10 then 
+            output(10)
+        else
+            output(i)
+        endif
+        i <- i+1
+    endwhile
     return 0
 endprogram

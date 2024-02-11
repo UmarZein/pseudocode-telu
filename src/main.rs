@@ -79,6 +79,10 @@ impl std::fmt::Display for Rule {
             Rule::integer_type => write!(f,"integer_type"),
             Rule::real_type => write!(f,"real_type"),
             Rule::bool_type => write!(f,"bool_type"),
+            Rule::test => write!(f,"test"),
+            Rule::ifcond => write!(f,"ifcond"),
+            Rule::stmt0 => write!(f,"stmt0"),
+            Rule::stmt1 => write!(f,"stmt1"),
         }
     }
 }
@@ -222,7 +226,7 @@ fn main() {
         module: &module,
         builder: &builder,
         functions: &mut HashMap::new(),
-        stackmap: &mut HashMap::new(),    
+        locals: &mut HashMap::new(),    
         paramstack: &mut HashMap::new(),    
         // program_name: String::from("program_out")
     };
