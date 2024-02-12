@@ -10,6 +10,8 @@
 //
 //
 //
+use log::{debug, error, log_enabled, info, Level};
+
 use inkwell::context::Context;
 use inkwell::intrinsics::Intrinsic;
 use inkwell::llvm_sys::prelude::LLVMValueRef;
@@ -33,7 +35,7 @@ use itertools::Itertools;
 use std::collections::{HashMap, VecDeque};
 use std::hint::unreachable_unchecked;
 
-use crate::parse::{PRATT_PARSER, FCParser, Rule, parse_expr, Expr};
+use crate::parse::{PRATT_PARSER, FCParser, Rule, parse_expr, Expr, simple_expr_str};
 use crate::{print_pairs, print_pair};
 
 #[derive(Debug)]
@@ -54,6 +56,8 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
         return f;
     }
     fn find_function(&self, name: &str, argtypes: &[BasicTypeEnum]) -> Option<FunctionValue<'ctx>>{
+        info!("trying to find function {name} with {} argtypes",argtypes.len());
+        info!("argtypes: {argtypes:#?}");
         let mut funcs = self.functions.get(&name.to_string())?.clone();
         funcs.sort_by(|a,b|{
             b.get_params().len().cmp(&a.get_params().len())
@@ -80,8 +84,10 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
             Rule::integer_type => context.i64_type().into(),
             Rule::real_type => context.f64_type().into(),
             Rule::bool_type => context.bool_type().into(),
+            Rule::char_type => context.i8_type().into(),
+            Rule::string_type => context.i8_type().ptr_type(AddressSpace::default()).into(),
             Rule::pointer_type => Self::pair_to_type(context, pair.into_inner().next().unwrap()).ptr_type(AddressSpace::default()).into(),
-            _ => unreachable!()
+            _ => unreachable!("pair = {pair:#?}")
         }
     }
     fn pair_to_value(&self, pair:Pair<Rule>) -> BasicValueEnum{
@@ -97,18 +103,20 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
     pub fn compile_program(&mut self, source_filename: &str){
         let code = std::fs::read_to_string(source_filename).unwrap();
         let parsed = FCParser::parse(Rule::program, &code).unwrap();
+        info!("done parsing {source_filename}");
         print_pairs(parsed.clone(), 0);
         let main_type = self.context.i64_type().fn_type(&[], false);
         let main_fn = self.add_function("main", main_type, None);
         self.context.append_basic_block(main_fn, "mainf_entry");
 
+        self.add_alloc();
         self.add_printf();
         self.add_output();
         // self.add_powi();
         // self.add_powf();
         let _ = parsed.clone().map(|p|self.declare_funcs(p)).collect::<Vec<()>>();
-        println!("done declare_funcs(...)... now, locals is:");
-        println!("{:#?}",self.locals);
+        info!("done declaring functions");
+        debug!("after debugging, locals[{}]={:#?}",self.locals.len(),self.locals);
         let _ = parsed.map(|p|self.compile_pest_output(p)).collect::<Vec<()>>();
     }
     
@@ -171,6 +179,7 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                 todo!("unimplemented: im confused whether Div should handle Idv's job as wel?")
             },
             E::Idv(bee) => context.i64_type().as_basic_type_enum(),
+            E::Mod(bee) => context.i64_type().as_basic_type_enum(),
             E::Pow(bee) => context.f64_type().as_basic_type_enum(),
             E::Neg(be) => Self::expr_type(context, locals, paramstack, functions, cur_func, be.as_ref()),
             E::Pathident(s) => paramstack
@@ -194,10 +203,15 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
             E::Int(i) => context.i64_type().as_basic_type_enum(),
             E::Float(f) => context.f64_type().as_basic_type_enum(),
             E::Bool(b) => context.bool_type().as_basic_type_enum(),
+            E::Char(c) => context.i8_type().as_basic_type_enum(),
+            E::Str(s) => context.i8_type().ptr_type(AddressSpace::default()).as_basic_type_enum(),
             E::Nil => todo!("NIL type is not supported"),
+            
         }
     }
     fn compile_expr(&self, expr: Expr) -> Option<BasicValueEnum<'ctx>> {
+        use BasicTypeEnum as BTE;
+        info!("compiling expression {}",simple_expr_str(&expr));
         //println!("compile_expr({expr:?})");
         match expr{
             Expr::Equ(bee) => {
@@ -205,14 +219,14 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                 let a = a.expect("void operand");
                 let b = b.expect("void operand");
                 Some(match a.get_type(){
-                    BasicTypeEnum::IntType(v) => {
+                    BTE::IntType(v) => {
                         self.builder.build_int_compare(
                             inkwell::IntPredicate::EQ, 
                             a.into_int_value(), 
                             b.into_int_value(), 
                             "inteq").unwrap().into()
                     },
-                    BasicTypeEnum::FloatType(v) => {
+                    BTE::FloatType(v) => {
                         self.builder.build_float_compare(
                             inkwell::FloatPredicate::OEQ, 
                             a.into_float_value(), 
@@ -227,14 +241,14 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                 let a = a.expect("void operand");
                 let b = b.expect("void operand");
                 Some(match a.get_type(){
-                    BasicTypeEnum::IntType(v) => {
+                    BTE::IntType(v) => {
                         self.builder.build_int_compare(
                             inkwell::IntPredicate::NE, 
                             a.into_int_value(), 
                             b.into_int_value(), 
                             "intneq").unwrap().into()
                     },
-                    BasicTypeEnum::FloatType(v) => {
+                    BTE::FloatType(v) => {
                         self.builder.build_float_compare(
                             inkwell::FloatPredicate::ONE, 
                             a.into_float_value(), 
@@ -249,14 +263,14 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                 let a = a.expect("void operand");
                 let b = b.expect("void operand");
                 Some(match a.get_type(){
-                    BasicTypeEnum::IntType(v) => {
+                    BTE::IntType(v) => {
                         self.builder.build_int_compare(
                             inkwell::IntPredicate::SGT, 
                             a.into_int_value(), 
                             b.into_int_value(), 
                             "intgt").unwrap().into()
                     },
-                    BasicTypeEnum::FloatType(v) => {
+                    BTE::FloatType(v) => {
                         self.builder.build_float_compare(
                             inkwell::FloatPredicate::OGT, 
                             a.into_float_value(), 
@@ -271,14 +285,14 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                 let a = a.expect("void operand");
                 let b = b.expect("void operand");
                 Some(match a.get_type(){
-                    BasicTypeEnum::IntType(v) => {
+                    BTE::IntType(v) => {
                         self.builder.build_int_compare(
                             inkwell::IntPredicate::SLT, 
                             a.into_int_value(), 
                             b.into_int_value(), 
                             "intlt").unwrap().into()
                     },
-                    BasicTypeEnum::FloatType(v) => {
+                    BTE::FloatType(v) => {
                         self.builder.build_float_compare(
                             inkwell::FloatPredicate::OLT, 
                             a.into_float_value(), 
@@ -293,14 +307,14 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                 let a = a.expect("void operand");
                 let b = b.expect("void operand");
                 Some(match a.get_type(){
-                    BasicTypeEnum::IntType(v) => {
+                    BTE::IntType(v) => {
                         self.builder.build_int_compare(
                             inkwell::IntPredicate::SGE, 
                             a.into_int_value(), 
                             b.into_int_value(), 
                             "intge").unwrap().into()
                     },
-                    BasicTypeEnum::FloatType(v) => {
+                    BTE::FloatType(v) => {
                         self.builder.build_float_compare(
                             inkwell::FloatPredicate::OGE, 
                             a.into_float_value(), 
@@ -315,14 +329,14 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                 let a = a.expect("void operand");
                 let b = b.expect("void operand");
                 Some(match a.get_type(){
-                    BasicTypeEnum::IntType(v) => {
+                    BTE::IntType(v) => {
                         self.builder.build_int_compare(
                             inkwell::IntPredicate::SLE, 
                             a.into_int_value(), 
                             b.into_int_value(), 
                             "intle").unwrap().into()
                     },
-                    BasicTypeEnum::FloatType(v) => {
+                    BTE::FloatType(v) => {
                         self.builder.build_float_compare(
                             inkwell::FloatPredicate::OLE, 
                             a.into_float_value(), 
@@ -336,11 +350,21 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                 let (a,b) = self.compile_beexpr(&bee);
                 let a = a.expect("void operand");
                 let b = b.expect("void operand");
-                Some(match a.get_type(){
-                    BasicTypeEnum::IntType(v) => {
+                Some(match (a.get_type(),b.get_type()){
+                    (BTE::PointerType(t),BTE::IntType(_)) => {
+                        let aaddr = self.builder.build_ptr_to_int(a.into_pointer_value(), self.context.i64_type(), "ptrtoint").unwrap();
+                        let res = self.builder.build_int_add(aaddr, b.into_int_value(), "intadd").unwrap();
+                        self.builder.build_int_to_ptr(res, t, "inttoptr").unwrap().into()
+                    },
+                    (BTE::IntType(_),BTE::PointerType(t)) => {
+                        let baddr = self.builder.build_ptr_to_int(b.into_pointer_value(), self.context.i64_type(), "ptrtoint").unwrap();
+                        let res = self.builder.build_int_add(a.into_int_value(), baddr, "intadd").unwrap();
+                        self.builder.build_int_to_ptr(res, t, "inttoptr").unwrap().into()
+                    },
+                    (BTE::IntType(_), BTE::IntType(_)) => {
                         self.builder.build_int_add(a.into_int_value(), b.into_int_value(), "intadd").unwrap().into()
                     },
-                    BasicTypeEnum::FloatType(v) => {
+                    (BTE::FloatType(_), BTE::FloatType(_)) => {
                         self.builder.build_float_add(a.into_float_value(), b.into_float_value(), "floatadd").unwrap().into()
                     },
                     _ => unimplemented!()
@@ -350,11 +374,21 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                 let (a,b) = self.compile_beexpr(&bee);
                 let a = a.expect("void operand");
                 let b = b.expect("void operand");
-                Some(match a.get_type(){
-                    BasicTypeEnum::IntType(v) => {
+                Some(match (a.get_type(),b.get_type()){
+                    (BTE::PointerType(t),BTE::IntType(_)) => {
+                        let aaddr = self.builder.build_ptr_to_int(a.into_pointer_value(), self.context.i64_type(), "ptrtoint").unwrap();
+                        let res = self.builder.build_int_sub(aaddr, b.into_int_value(), "intsub").unwrap();
+                        self.builder.build_int_to_ptr(res, t, "inttoptr").unwrap().into()
+                    },
+                    (BTE::IntType(_),BTE::PointerType(t)) => {
+                        let baddr = self.builder.build_ptr_to_int(b.into_pointer_value(), self.context.i64_type(), "ptrtoint").unwrap();
+                        let res = self.builder.build_int_sub(a.into_int_value(), baddr, "intsub").unwrap();
+                        self.builder.build_int_to_ptr(res, t, "inttoptr").unwrap().into()
+                    },
+                    (BTE::IntType(_), BTE::IntType(_)) => {
                         self.builder.build_int_sub(a.into_int_value(), b.into_int_value(), "intsub").unwrap().into()
                     },
-                    BasicTypeEnum::FloatType(v) => {
+                    (BTE::FloatType(_), BTE::FloatType(_)) => {
                         self.builder.build_float_sub(a.into_float_value(), b.into_float_value(), "floatsub").unwrap().into()
                     },
                     _ => unimplemented!()
@@ -365,10 +399,10 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                 let a = a.expect("void operand");
                 let b = b.expect("void operand");
                 Some(match a.get_type(){
-                    BasicTypeEnum::IntType(v) => {
+                    BTE::IntType(v) => {
                         self.builder.build_int_mul(a.into_int_value(), b.into_int_value(), "intmul").unwrap().into()
                     },
-                    BasicTypeEnum::FloatType(v) => {
+                    BTE::FloatType(v) => {
                         self.builder.build_float_mul(a.into_float_value(), b.into_float_value(), "floatmul").unwrap().into()
                     },
                     _ => unimplemented!()
@@ -379,10 +413,10 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                 let a = a.expect("void operand");
                 let b = b.expect("void operand");
                 Some(match a.get_type(){
-                    BasicTypeEnum::IntType(v) => {
+                    BTE::IntType(v) => {
                         self.builder.build_int_signed_div(a.into_int_value(), b.into_int_value(), "intdiv").unwrap().into()
                     },
-                    BasicTypeEnum::FloatType(v) => {
+                    BTE::FloatType(v) => {
                         self.builder.build_float_div(a.into_float_value(), b.into_float_value(), "floatdiv").unwrap().into()
                     },
                     _ => unimplemented!()
@@ -393,6 +427,22 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                 let a = a.expect("void operand");
                 let b = b.expect("void operand");
                 return Some(self.builder.build_int_signed_div(a.into_int_value(), b.into_int_value(), "intdiv").unwrap().into())
+            },
+            Expr::Mod(bee) => {
+                let (a,b) = self.compile_beexpr(&bee);
+                let a = a.expect("void operand");
+                let b = b.expect("void operand");
+                let c = (self.builder.build_int_signed_rem(
+                    a.into_int_value(), 
+                    b.into_int_value(), 
+                    "srem").unwrap());
+                let d = self.builder.build_int_add(c, b.into_int_value(), "intadd").unwrap();
+                Some(self.builder.build_int_signed_rem(
+                    d, 
+                    b.into_int_value(), 
+                    "srem").unwrap().into()
+                )
+
             },
             Expr::Pow(bee) => {
                 let (a,b) = self.compile_beexpr(&bee);
@@ -423,10 +473,10 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
             Expr::Neg(x) => {
                 let inner = self.compile_bexpr(&x).expect("void operand");
                 Some(match inner.get_type(){
-                    BasicTypeEnum::IntType(v) => {
+                    BTE::IntType(v) => {
                         self.builder.build_int_neg(inner.into_int_value(),"intneg").unwrap().into()
                     },
-                    BasicTypeEnum::FloatType(v) => {
+                    BTE::FloatType(v) => {
                         self.builder.build_float_neg(inner.into_float_value(),"floatneg").unwrap().into()
                     },
                     _ => unimplemented!()
@@ -441,7 +491,6 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                         &(self.builder.get_insert_block().unwrap().get_parent().unwrap(),path.clone())
                         ).expect(&format!("did not find {path}"));
                     //println!("found {path} in locals");
-                    use BasicTypeEnum as BTE;
                     Some(match var_typ{
                         BTE::ArrayType(_)   => todo!(),
                         BTE::FloatType(t)   => self.builder.build_load(var_typ.into_float_type(), *var_ptr, "loadpath").unwrap(),
@@ -490,17 +539,34 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
             Expr::Int(i) => Some(self.context.i64_type().const_int(i as u64, false).into()),
             Expr::Float(i) => Some(self.context.f64_type().const_float(i).into()),
             Expr::Bool(i) => Some(self.context.i8_type().const_int(i as u64, false).into()),
+            Expr::Char(i) => Some(self.context.i8_type().const_int(i as u64, false).into()),
+            Expr::Str(i) => {
+                // landmark
+                let int64 = self.context.i64_type();
+                let int8 = self.context.i8_type();
+                let i8ptr = self.context.i8_type().ptr_type(AddressSpace::default());
+
+                let len = i.len();
+                let name = String::from("malloc");
+                let argtypes = &[int64.into()];
+                let args = &[int64.const_int((1i64*len as i64) as u64, false).into()];
+                let malloc = self.find_function(&name, argtypes).expect(&format!("could not find function with name {name} with {} arguments",argtypes.len()));
+                let call = self.builder.build_call(malloc, args, "stringmalloc");
+                let cptr = call.unwrap().try_as_basic_value().left().unwrap().into_pointer_value();
+                for offset in 0..=len{
+                    let addr = self.builder.build_ptr_to_int(cptr, self.context.i64_type(), "ptrtoint").unwrap();
+                    let res = self.builder.build_int_add(addr, self.context.i64_type().const_int(offset as u64, false), "addone").unwrap();
+                    let offsetptr=self.builder.build_int_to_ptr(res, i8ptr, "inttoptr").unwrap().into();
+
+                    if offset!=len{
+                        self.builder.build_store(offsetptr, self.context.i8_type().const_int(i[offset] as u64, false));
+                    } else {
+                        self.builder.build_store(offsetptr, self.context.i8_type().const_int(b'\0' as u64, false));
+                    }
+                }
+                Some(cptr.as_basic_value_enum())
+            },
             Expr::Nil => unimplemented!(),
-        }
-    }
-    fn bte_to_fstr(bte: &BasicTypeEnum) -> &'static str{
-        match bte{
-            BasicTypeEnum::ArrayType(_) => unimplemented!(),
-            BasicTypeEnum::FloatType(_) => "%ld",
-            BasicTypeEnum::IntType(_) => "%lli",
-            BasicTypeEnum::PointerType(_) => "%p",
-            BasicTypeEnum::StructType(_) => todo!(),
-            BasicTypeEnum::VectorType(_) => unimplemented!(),
         }
     }
     fn declare_funcs(&mut self, pair: Pair<Rule>){
@@ -558,8 +624,8 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
 
                 let typename = i.clone().find(|x|{
                     match x.as_rule(){
-                        R::integer_type|R::real_type|R::bool_type
-                        |R::pointer_type|R::user_type => true,
+                        R::integer_type|R::real_type|R::bool_type|R::string_type
+                        |R::pointer_type|R::char_type|R::user_type => true,
                         _ => false
                     }
                 }).unwrap();
@@ -642,7 +708,9 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
     fn compile_pest_output(&mut self, pair: Pair<Rule>){
         //println!("compile_pest_output({})",pair.to_string());
         use Rule as R;
-        match pair.as_rule(){
+        let rule = pair.as_rule();
+        info!("compiling rule {rule}");
+        match rule{
             R::expr => {
                 let exp = parse_expr(pair.into_inner());
                 self.compile_expr(exp);
@@ -746,8 +814,8 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                 while let Some(x) = i.next(){
                     match x.as_rule(){
                         R::algoritma => self.compile_pest_output(x),
-                        R::integer_type|R::konstanta|R::kamus|R::real_type
-                        |R::bool_type|R::pointer_type|R::user_type|R::parameter => continue,
+                        R::integer_type|R::konstanta|R::kamus|R::real_type|R::char_type
+                        |R::bool_type|R::pointer_type|R::user_type|R::parameter|R::string_type => continue,
                         _ => unreachable!("{:?}",x.as_rule())
                     }
                 }
@@ -769,6 +837,38 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
             _ => unreachable!("reached rule {}",pair.as_rule().to_string())
         }
     }
+    pub fn add_alloc(&mut self){
+        // malloc
+        let int64 = self.context.i64_type();
+        let i8ptr = self.context.i8_type().ptr_type(AddressSpace::default());
+        let typ = i8ptr.fn_type(&[int64.into()], false);
+        let name = "malloc".to_string();
+        let func = self.module.add_function(&name, typ, Some(Linkage::External));
+        match self.functions.get_mut(&name){
+            None => {self.functions.insert(name, vec![func.clone()]);},
+            Some(x) => x.push(func.clone())
+        };
+        // realloc
+        let int64 = self.context.i64_type();
+        let i8ptr = self.context.i8_type().ptr_type(AddressSpace::default());
+        let typ = i8ptr.fn_type(&[i8ptr.clone().into(),int64.into()], false);
+        let name = "realloc".to_string();
+        let func = self.module.add_function(&name, typ, Some(Linkage::External));
+        match self.functions.get_mut(&name){
+            None => {self.functions.insert(name, vec![func.clone()]);},
+            Some(x) => x.push(func.clone())
+        };
+        // free
+        let void = self.context.void_type();
+        let i8ptr = self.context.i8_type().ptr_type(AddressSpace::default());
+        let typ = void.fn_type(&[int64.into()], false);
+        let name = "free".to_string();
+        let func = self.module.add_function(&name, typ, Some(Linkage::External));
+        match self.functions.get_mut(&name){
+            None => {self.functions.insert(name, vec![func.clone()]);},
+            Some(x) => x.push(func.clone())
+        };
+    }
     pub fn add_printf(&mut self){
         let int32 = self.context.i32_type();
         let int8ptr = self.context.i8_type().ptr_type(AddressSpace::default());
@@ -785,10 +885,12 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
         let entry =main_fn.get_first_basic_block().unwrap();
         self.builder.position_at_end(entry);
 
-        let newline_fstr = self.builder.build_global_string_ptr("\n", "fstrld").unwrap();
-        let i64_fstr = self.builder.build_global_string_ptr("%ld ", "fstrld").unwrap();
-        let f64_fstr = self.builder.build_global_string_ptr("%f ", "fstrld").unwrap();
-        let bool_fstr = self.builder.build_global_string_ptr("%b ", "fstrld").unwrap();
+        let newline_fstr = self.builder.build_global_string_ptr("\n", "fstr").unwrap();
+        let char_fstr = self.builder.build_global_string_ptr("%c ", "fstr").unwrap();
+        let string_fstr = self.builder.build_global_string_ptr("%s ", "fstr").unwrap();
+        let i64_fstr = self.builder.build_global_string_ptr("%ld ", "fstr").unwrap();
+        let f64_fstr = self.builder.build_global_string_ptr("%f ", "fstr").unwrap();
+        let bool_fstr = self.builder.build_global_string_ptr("%b ", "fstr").unwrap();
         let printf = self.module.get_function("printf").unwrap();
         let name = "output".to_string();
         //
@@ -860,6 +962,42 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                 param.into()
             ], 
             "printfbool").unwrap();
+        self.builder.build_return(None);
+        //
+        let ftype = self.context.void_type().fn_type(&[self.context.i8_type().into()], false);
+        let func = self.module.add_function("output", ftype, None);
+        match self.functions.get_mut(&name){
+            None => {self.functions.insert(name.clone(), vec![func.clone()]);},
+            Some(x) => x.push(func.clone())
+        };
+        let fblock = self.context.append_basic_block(func, "outputentrychar");
+        self.builder.position_at_end(fblock);
+        let param= func.get_first_param().unwrap();
+        let pcall = self.builder.build_direct_call(
+            printf, 
+            &[
+                char_fstr.as_pointer_value().into(), 
+                param.into()
+            ], 
+            "printfchar").unwrap();
+        self.builder.build_return(None);
+        //
+        let ftype = self.context.void_type().fn_type(&[self.context.i8_type().ptr_type(AddressSpace::default()).into()], false);
+        let func = self.module.add_function("output", ftype, None);
+        match self.functions.get_mut(&name){
+            None => {self.functions.insert(name.clone(), vec![func.clone()]);},
+            Some(x) => x.push(func.clone())
+        };
+        let fblock = self.context.append_basic_block(func, "outputentrystring");
+        self.builder.position_at_end(fblock);
+        let param= func.get_first_param().unwrap();
+        let pcall = self.builder.build_direct_call(
+            printf, 
+            &[
+                string_fstr.as_pointer_value().into(), 
+                param.into()
+            ], 
+            "printfstring").unwrap();
         self.builder.build_return(None);
 
     }

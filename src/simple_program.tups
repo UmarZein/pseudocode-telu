@@ -1,15 +1,16 @@
 program yomyman
 kamus
-    i: integer
+    a,b,c: string
 algoritma 
-    i <- 0
-    while i<20 do 
-        if i>10 then 
-            output(10)
-        else
-            output(i)
-        endif
-        i <- i+1
-    endwhile
+    a <- "A"
+    b <- "B"
+    c <- "C"
+    output(a,b,c)
+    c <- a 
+    a <- b 
+    b <- c
+    output(a,b,c)
+    b <- "X"
+    output(a,b,c)
     return 0
 endprogram

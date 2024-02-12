@@ -8,9 +8,12 @@ int = @{"-"?~uint}
 float = @{"-"?~uint~"."~zint*}
 bool = @{"true" | "false"}
 nil = @{"NIL"}
-char = @{'a'..'Z'}
+char = {"\\"?~ASCII}
+string = @{(!"\""~char)*}
+charwrapper = _{"'"~char~"'"}
+stringwrapper = _{"\""~string~"\""}
 literal_primitives = _{
-    float|uint|int|bool|nil
+    float|uint|int|bool|nil|charwrapper|stringwrapper
 }
 literal = _{literal_primitives}
 COMMENT = _{ "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
@@ -39,12 +42,16 @@ keywords = @{
 integer_type = {"integer"}
 real_type = {"real"}
 bool_type = {"bool"}
+char_type = {"char"}
+string_type = {"string"}
 
 
 primitives = _{
     integer_type |
     real_type |
-    bool_type
+    bool_type |
+    string_type |
+    char_type
 }
 pointer_type = {
     ("pointer" ~ "to" ~ typename)
@@ -104,27 +111,29 @@ expr       =   { prefix? ~ primary ~ postfix? ~ (infix ~ prefix? ~ primary ~ pos
     infix    =  _{ 
                     add | sub | mul 
                     | idv | div | pow | ge | gt
-                    | le | lt| equ | neq
+                    | le | lt| equ | mdl
                 }
       add    =   { "+" } // Addition
       sub    =   { "-" } // Subtraction
       mul    =   { "*" } // Multiplication
       div    =   { "/" } // Division
       idv    =   { "div" } // integer Division
+      mdl    =   { "mod" } // integer Division
       neq    =   { "!=" } // Not Equal
       equ    =   { "==" } // Equal
       pow    =   { "^" } // Exponentiation
-      lt    =   { "<" } // Exponentiation
-      le    =   { "<=" } // Exponentiation
-      gt    =   { ">" } // Exponentiation
-      ge    =   { ">=" } // Exponentiation
-    prefix   =  _{ neg }
+      lt    =   { "<" } // Less than
+      le    =   { "<=" } // Less than or equal
+      gt    =   { ">" } // Greater than
+      ge    =   { ">=" } // Greater than or equal
+    prefix   =  _{ neg } 
       neg    =   { "-" } // Negation
     postfix  =  _{ !"nope"~"nope"}
     primary  =  _{ literal 
-    | call
-    | pathident
-    | "(" ~ expr ~ ")" }
+                    | call
+                    | pathident
+                    | "(" ~ expr ~ ")" 
+    }
 
 algoritma = {
     "algoritma"
@@ -170,10 +179,6 @@ asgnstmt = {
     ~ "<-"
     ~ expr
 }
-test={
-    "if"
-    ~ expr
-    ~ "then"}
 ifcond={expr}
 ifstmt = {
     "if"

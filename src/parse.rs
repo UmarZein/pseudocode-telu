@@ -20,7 +20,7 @@ lazy_static::lazy_static! {
               | Op::infix(ge, Left)
               | Op::infix(le, Left))
             .op(Op::infix(add, Left) | Op::infix(sub, Left))
-            .op(Op::infix(mul, Left) | Op::infix(div, Left) | Op::infix(idv, Left))
+            .op(Op::infix(mul, Left) | Op::infix(div, Left) | Op::infix(idv, Left) | Op::infix(mdl, Left))
             .op(Op::infix(pow, Left))
             .op(Op::prefix(neg))
     };
@@ -40,6 +40,7 @@ pub enum Expr{
     Mul(Box<(Expr, Expr)>),
     Div(Box<(Expr, Expr)>),
     Idv(Box<(Expr, Expr)>),
+    Mod(Box<(Expr, Expr)>),
     Pow(Box<(Expr, Expr)>),
     Neg(Box<Expr>),
     Pathident(String),
@@ -47,9 +48,37 @@ pub enum Expr{
     Int(i64),
     Float(f64),
     Bool(bool),
+    Char(u8),
+    Str(Vec<u8>),
     Nil,
 }
 
+pub fn simple_expr_str(e: &Expr) -> String{
+    match e{
+        Expr::Equ(_) => format!("Equ"),
+        Expr::Neq(_) => format!("Neq"),
+        Expr::Gt(_) => format!("Gt"),
+        Expr::Lt(_) => format!("Lt"),
+        Expr::Ge(_) => format!("Ge"),
+        Expr::Le(_) => format!("Le"),
+        Expr::Add(_) => format!("Add"),
+        Expr::Sub(_) => format!("Sub"),
+        Expr::Mul(_) => format!("Mul"),
+        Expr::Div(_) => format!("Div"),
+        Expr::Idv(_) => format!("Idv"),
+        Expr::Mod(_) => format!("Mod"),
+        Expr::Pow(_) => format!("Pow"),
+        Expr::Neg(_) => format!("Neg"),
+        Expr::Pathident(a) => format!("Pathident: {a}"),
+        Expr::Call(n, v) => format!("Call {n} with {} args",v.len()),
+        Expr::Int(a) => format!("Int: {a}"),
+        Expr::Float(a) => format!("Float: {a}"),
+        Expr::Bool(a) => format!("Bool: {a}"),
+        Expr::Char(a) => format!("Char: {}",*a as u8),
+        Expr::Str(a) => format!("Str: {}",String::from_utf8(a.clone()).unwrap()),
+        Expr::Nil => format!("Nil"),
+    }
+}
 
 impl Expr{
     pub fn is_nil(&self)->bool{
@@ -78,7 +107,10 @@ pub fn parse_expr(pairs: Pairs<Rule>) -> Expr {
                 Bool(primary.as_str().parse().unwrap())
             },
             R::char => {
-                unimplemented!()
+                Char(primary.as_str().chars().next().unwrap() as u8)
+            },
+            R::string => {
+                Str(primary.as_str().chars().map(|x|x as u8).collect())
             },
             R::nil => {
                 Nil
@@ -117,6 +149,7 @@ pub fn parse_expr(pairs: Pairs<Rule>) -> Expr {
             R::mul => Mul(Box::new((lhs,rhs))),
             R::div => Div(Box::new((lhs,rhs))),
             R::idv => Idv(Box::new((lhs,rhs))),
+            R::mdl => Mod(Box::new((lhs,rhs))),
             R::pow => Pow(Box::new((lhs,rhs))),
             _          => unreachable!(),
         })

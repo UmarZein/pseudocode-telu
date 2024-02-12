@@ -1,4 +1,8 @@
 #![allow(warnings)]
+// RUST_LOG=info cargo r && clang-17 -lm program.o -o progra && ./program
+use log::{debug, error, log_enabled, info, Level};
+
+
 extern crate pest;
 #[macro_use]
 extern crate pest_derive;
@@ -28,6 +32,7 @@ impl std::fmt::Display for Rule {
             Rule::float => write!(f,"float"),
             Rule::bool => write!(f,"bool"),
             Rule::char => write!(f,"char"),
+            Rule::string => write!(f,"string"),
             Rule::literal_primitives => write!(f,"literal_primitives"),
             Rule::literal => write!(f,"literal"),
             Rule::COMMENT => write!(f,"COMMENT"),
@@ -49,6 +54,7 @@ impl std::fmt::Display for Rule {
             Rule::mul => write!(f,"mul"),
             Rule::div => write!(f,"div"),
             Rule::idv => write!(f,"idv"),
+            Rule::mdl => write!(f,"mod"),
             Rule::neq => write!(f,"neq"),
             Rule::equ => write!(f,"equ"),
             Rule::pow => write!(f,"pow"),
@@ -79,7 +85,11 @@ impl std::fmt::Display for Rule {
             Rule::integer_type => write!(f,"integer_type"),
             Rule::real_type => write!(f,"real_type"),
             Rule::bool_type => write!(f,"bool_type"),
-            Rule::test => write!(f,"test"),
+            Rule::char_type => write!(f,"char_type"),
+            Rule::string_type => write!(f,"string_type"),
+            Rule::char => write!(f,"char"),
+            Rule::charwrapper => write!(f,"charwrapper"),
+            Rule::stringwrapper => write!(f,"stringwrapper"),
             Rule::ifcond => write!(f,"ifcond"),
             Rule::stmt0 => write!(f,"stmt0"),
             Rule::stmt1 => write!(f,"stmt1"),
@@ -117,9 +127,11 @@ use itertools::Itertools;
 type FuncSign = unsafe extern "C" fn() -> i32;
 //cargo r && clang++-17 exm.o -o exmar; ./exmar; echo $?
 fn main() {
+    env_logger::init();
+    
     Target::initialize_native(&InitializationConfig::default()).expect("Failed to initialize native target");
-    println!("{}",TargetMachine::get_default_triple().as_str().to_str().unwrap());
-    println!("cur dir = {}", std::env::current_dir().unwrap().display()    );
+    info!("TargetMachine = {}",TargetMachine::get_default_triple().as_str().to_str().unwrap());
+    info!("current directory = {}",std::env::current_dir().unwrap().display());
 
     // let context = Context::create();
     // let module = context.create_module("my_module");
@@ -180,8 +192,19 @@ fn main() {
     let triple = TargetMachine::get_default_triple();
     let cpu = TargetMachine::get_host_cpu_name().to_string();
     let features = TargetMachine::get_host_cpu_features().to_string();
-
     let target = Target::from_triple(&triple).unwrap();
+    info!("triple: {triple}");
+    info!("cpu: {cpu}");
+    info!("features: {features}");
+
+    let optlev = OptimizationLevel::Aggressive;
+    let relocmode = RelocMode::PIC;
+    let codemodel = CodeModel::Medium;
+
+    info!("optimization level: {optlev:?}");
+    info!("relocation mode: {relocmode:?}");
+    info!("code model: {codemodel:?}");
+
     let machine = target
         .create_target_machine(
             &triple,
@@ -192,6 +215,7 @@ fn main() {
             CodeModel::Medium,//TODO: change to Small but idk if it will break things
         )
         .unwrap();
+    info!("initialized target machined");
 
     // println!("AYE");
     // println!("{}",module.print_to_string().to_string());
@@ -231,8 +255,11 @@ fn main() {
         // program_name: String::from("program_out")
     };
     cg.compile_program("./simple_program.tups");
+    info!("compiled program");
     println!("{}",module.print_to_string().to_string());
-    machine.write_to_file(&module, FileType::Object, "program.o".as_ref()).unwrap();
+    let dest = "program.o";
+    machine.write_to_file(&module, FileType::Object, dest.as_ref()).unwrap();
+    info!("written to file {dest}");
     println!("important: please link with math library (e.x: clang-17 -lm program.o -o program)");
 
 }
