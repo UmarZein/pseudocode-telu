@@ -44,6 +44,7 @@ real_type = {"real"}
 bool_type = {"bool"}
 char_type = {"char"}
 string_type = {"string"}
+void_type = {"void"}
 
 
 primitives = _{
@@ -51,7 +52,8 @@ primitives = _{
     real_type |
     bool_type |
     string_type |
-    char_type
+    char_type |
+    void_type
 }
 pointer_type = {
     ("pointer" ~ "to" ~ typename)

@@ -1,16 +1,34 @@
+procedure prime(in/out n: integer) 
+kamus 
+    i,j,total: integer
+    p: bool
+algoritma
+    total <- 0
+    i<-2
+    while i<n do 
+        p <- true
+        j<-2
+        while j*j<=i do 
+            if i mod j == 0 then 
+                p <- false
+            endif
+            j <- j+1
+        endwhile
+        if p then 
+            total <- total + 1
+            output(i,"is prime")
+        endif
+        i <- i+1
+    endwhile
+    n <- total
+endprocedure
 program yomyman
-kamus
-    a,b,c: string
+kamus 
+    n: integer
 algoritma 
-    a <- "A"
-    b <- "B"
-    c <- "C"
-    output(a,b,c)
-    c <- a 
-    a <- b 
-    b <- c
-    output(a,b,c)
-    b <- "X"
-    output(a,b,c)
-    return 0
+    n <- 100
+    output("before, n is",n)
+    prime(n)
+    output("now, n is",n)
+    return 1
 endprogram
