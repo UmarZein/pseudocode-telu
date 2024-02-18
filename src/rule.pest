@@ -16,6 +16,7 @@ literal_primitives = _{
     float|uint|int|bool|nil|charwrapper|stringwrapper
 }
 literal = _{literal_primitives}
+
 COMMENT = _{ "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
 keywords = @{
     "type" |
@@ -37,6 +38,8 @@ keywords = @{
     "while" |
     "do" |
     "endwhile" |
+    "array" |
+    "of" |
     "endprogram"
 }
 integer_type = {"integer"}
@@ -58,9 +61,17 @@ primitives = _{
 pointer_type = {
     ("pointer" ~ "to" ~ typename)
 }
+zero_or_one = {("0"|"1")}
+array_dim = {
+	"[" ~zero_or_one~".."~uint~"]"
+}
+array_type = {
+    ("array" ~ array_dim ~ "of" ~ typename)
+}
 user_type = @{ident}
 typename = _{
     primitives 
+    | array_type
     | pointer_type
     | user_type
 }
@@ -109,6 +120,10 @@ call = {
     pathident ~ ("(" ~ (expr ~ (","~expr)* ~","?)? ~ ")")
 }
 
+index = {
+	pathident ~ "[" ~ expr ~ "]"
+}
+
 expr       =   { prefix? ~ primary ~ postfix? ~ (infix ~ prefix? ~ primary ~ postfix? )* }
     infix    =  _{ 
                     add | sub | mul 
@@ -133,6 +148,7 @@ expr       =   { prefix? ~ primary ~ postfix? ~ (infix ~ prefix? ~ primary ~ pos
     postfix  =  _{ !"nope"~"nope"}
     primary  =  _{ literal 
                     | call
+                    | index
                     | pathident
                     | "(" ~ expr ~ ")" 
     }
@@ -176,8 +192,12 @@ typealias = {
 retstmt = {
     "return" ~ expr
 }
+gep = {
+	pathident ~ "["~expr~"]"
+}
+
 asgnstmt = {
-    pathident
+    (gep|pathident)
     ~ "<-"
     ~ expr
 }

@@ -46,22 +46,11 @@ pub enum Type{
     String,
     Void,
     VoidPtr,
+    Array(bool,u32,Box<Type>),
     Ptr(Box<Type>),
 }
 
 impl<'ctx> Type{
-    pub fn is_int_type(&self) -> bool{
-        match self{
-            Type::Int     => true,
-            Type::Float   | 
-            Type::Char    | 
-            Type::Bool    | 
-            Type::String  | 
-            Type::Void    |
-            Type::VoidPtr | 
-            Type::Ptr(_)  => false 
-        }
-    }
     pub fn into_bte(&self, context: &'ctx Context) -> BasicTypeEnum<'ctx>{
         match self{
             Type::Int     => context.i64_type().into(),
@@ -70,6 +59,7 @@ impl<'ctx> Type{
             Type::Bool    => context.bool_type().into(),
             Type::String  => context.i8_type().ptr_type(AddressSpace::default()).into(),
             Type::VoidPtr => context.i8_type().ptr_type(AddressSpace::default()).into(),
+            Type::Array(one,s,i)  => i.as_ref().into_bte(context).array_type(*s).into(),
             Type::Ptr(i)  => i.as_ref().into_bte(context).ptr_type(AddressSpace::default()).into(),
             Type::Void => panic!("Void type should not be turned into BasicTypeEnum"),
         }
@@ -82,6 +72,7 @@ impl<'ctx> Type{
             Type::Bool    => context.bool_type().ptr_type(addressspace),
             Type::String  => context.i8_type().ptr_type(AddressSpace::default()).ptr_type(addressspace),
             Type::VoidPtr => context.i8_type().ptr_type(AddressSpace::default()).ptr_type(addressspace),
+            Type::Array(one,s,i)  => i.as_ref().into_bte(context).array_type(*s).ptr_type(addressspace),
             Type::Ptr(i)  => i.as_ref().into_bte(context).ptr_type(AddressSpace::default()).ptr_type(addressspace),
             Type::Void => panic!("Void type should not be turned into ptr type"),
         }
@@ -95,6 +86,7 @@ impl<'ctx> Type{
             Type::Bool    => context.bool_type().fn_type(&itype, is_var_args),
             Type::String  => context.i8_type().ptr_type(AddressSpace::default()).fn_type(&itype, is_var_args),
             Type::VoidPtr => context.i8_type().ptr_type(AddressSpace::default()).fn_type(&itype, is_var_args),
+            Type::Array(one,s,i)  => i.as_ref().into_bte(context).array_type(*s).fn_type(&itype, is_var_args),
             Type::Ptr(i)  => i.as_ref().into_bte(context).ptr_type(AddressSpace::default()).fn_type(&itype, is_var_args),
             Type::Void => context.void_type().fn_type(&itype, is_var_args),
         }
@@ -131,6 +123,14 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
             Rule::char_type => Type::Char,
             Rule::string_type => Type::String,
             Rule::void_type => Type::Void,
+            Rule::array_type => {
+                let mut i = pair.into_inner();
+                let mut array_dim = i.next().unwrap().into_inner();
+                let one_indexed = array_dim.next().unwrap().as_str()=="1";
+                let size = array_dim.next().unwrap().as_str().parse().unwrap();
+                let inner_type = Self::pair_to_type(context, i.next().unwrap());
+                Type::Array(one_indexed, size, Box::new(inner_type))
+            },
             Rule::pointer_type => Type::Ptr(Box::new(Self::pair_to_type(context, pair.into_inner().next().unwrap()))),
             _ => unreachable!("pair = {pair:#?}")
         }
@@ -233,7 +233,7 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
             E::Pathident(s) => locals.get(&(*cur_func,s.clone())).expect(&format!("could not find {s}")).1.clone(),
             E::Call(s, ve) => {
                 let argtypes: Vec<_> = ve.iter().map(|e|Self::raw_expr_type(context, locals, functions, cur_func, &e)).collect();
-                // the piece of code below is beautifully ugly
+                // this code is beautifully ugly
                 functions.get(&s.clone()).unwrap().iter()
                     .find(|&(e,t,v)|{
                         let fargtypes = v.iter()
@@ -496,7 +496,7 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                 let (a,b,typea,typeb) = self.compile_beexpr(&bee);
                 let a = a.expect("void operand");
                 let b = b.expect("void operand");
-                if typeb.is_int_type(){
+                if typeb==Type::Int{
                     let a = self.builder.build_cast(InstructionOpcode::SIToFP, a, self.context.f32_type(), "sitofp").unwrap();
 
                     let b = self.builder.build_int_cast(b.into_int_value(), self.context.i32_type(), "cast").unwrap();
@@ -548,6 +548,7 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                     Type::Char => self.builder.build_load(btetyp.into_int_type(), ptr, "loadpath").unwrap(),
                     Type::Bool => self.builder.build_load(btetyp.into_int_type(), ptr, "loadpath").unwrap(),
                     Type::String => self.builder.build_load(btetyp.into_pointer_type(), ptr, "loadpath").unwrap(),
+                    Type::Array(one, s, i) => self.builder.build_load(btetyp.into_array_type(), ptr, "loadpath").unwrap(),
                     Type::Ptr(_) => self.builder.build_load(btetyp.into_pointer_type(), ptr, "loadpath").unwrap(), 
                 })
             },
@@ -705,7 +706,7 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                 let typename = i.clone().find(|x|{
                     match x.as_rule(){
                         R::integer_type|R::real_type|R::bool_type|R::string_type
-                        |R::pointer_type|R::char_type|R::user_type|R::void_type => true,
+                        |R::pointer_type|R::char_type|R::user_type|R::void_type|R::array_type => true,
                         _ => false
                     }
                 }).unwrap();
@@ -837,12 +838,37 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
             }
             R::asgnstmt => {
                 let mut i = pair.into_inner();
-                let path = i.next().unwrap().as_str();
+                let next = i.next().unwrap();
                 let expr = parse_expr(i.next().unwrap().into_inner());
+                let etyp = self.expr_type(&expr);
                 let compiled_expr = self.compile_expr(expr).expect("void assignment");
                 let func = self.builder.get_insert_block().unwrap().get_parent().unwrap();
-                let (var_ptr,var_typ) = self.locals.get(&(func,path.to_string())).unwrap();
-                self.builder.build_store(var_ptr.clone(), compiled_expr);
+
+                let (var_ptr, var_typ) = match next.as_rule(){
+                    R::gep => {
+                        let mut inner = next.into_inner();
+                        let name = inner.next().unwrap().as_str().to_string();
+                        let (ptr,typ): (PointerValue<'ctx>,Type) = self.locals.get(&(func, name)).unwrap().clone();
+                        let index = parse_expr(inner.next().unwrap().into_inner());
+                        let index = self.compile_expr(index).expect("index cannot be void/nil")
+                                        .into_int_value();
+                        let inner_typ = match typ{
+                            Type::Array(one, size, body) => body.as_ref().clone(),
+                            _ => unreachable!()
+                        };
+                        let elm_ptr = unsafe {
+                            self.builder.build_gep(inner_typ.into_bte(self.context), ptr, &[index], "getelementptr").unwrap()
+                        };
+                        (elm_ptr, inner_typ)
+                    },
+                    R::pathident => self.locals.get(&(func, next.as_str().to_string())).unwrap().clone(),
+                    _ => unreachable!(),
+                };
+                if let (Type::Ptr(_), Type::Int) = (var_typ,etyp){
+                    todo!("implement assign int to ptr")
+                } else {
+                    self.builder.build_store(var_ptr.clone(), compiled_expr);
+                }
             }
             R::retstmt => {
                 let exp = pair.into_inner();
@@ -855,7 +881,7 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                 if bname.unwrap() == "mainf_entry"{
                     let etyp=Self::raw_expr_type(self.context, self.locals, self.functions,
                         &self.builder.get_insert_block().unwrap().get_parent().unwrap(),&exp);
-                    if etyp.is_int_type()==false{
+                    if etyp!=Type::Int{
                         panic!("main return should be int, but type {etyp:#?} was found instead")
                     }
                 }
@@ -876,7 +902,7 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                     match x.as_rule(){
                         R::algoritma => self.compile_pest_output(x),
                         R::integer_type|R::konstanta|R::kamus|R::real_type|R::char_type|R::void_type
-                        |R::bool_type|R::pointer_type|R::user_type|R::parameter|R::string_type => continue,
+                        |R::bool_type|R::pointer_type|R::user_type|R::parameter|R::string_type|R::array_type => continue,
                         _ => unreachable!()
                     }
                 }
@@ -892,7 +918,7 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                     match x.as_rule(){
                         R::algoritma => self.compile_pest_output(x),
                         R::integer_type|R::konstanta|R::kamus|R::real_type|R::char_type|R::void_type
-                        |R::bool_type|R::pointer_type|R::user_type|R::parameter|R::string_type => continue,
+                        |R::bool_type|R::pointer_type|R::user_type|R::parameter|R::array_type|R::string_type => continue,
                         _ => unreachable!("{:?}",x.as_rule())
                     }
                 }

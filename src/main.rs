@@ -24,6 +24,11 @@ mod compile;
 impl std::fmt::Display for Rule {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Rule::gep => write!(f,"gep"),
+            Rule::index => write!(f,"index"),
+            Rule::zero_or_one => write!(f,"zero_or_one"),
+            Rule::array_dim => write!(f,"array_dim"),
+            Rule::array_type => write!(f,"array_type"),
             Rule::ident => write!(f,"ident"),
             Rule::WHITESPACE => write!(f,"WHITESPACE"),
             Rule::uint => write!(f,"uint"),
