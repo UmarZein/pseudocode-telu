@@ -22,10 +22,13 @@ algoritma
     endwhile
     n <- total
 endprocedure
+
+
 program yomyman
 kamus 
     n: integer
 algoritma 
+    output("irfan")
     n <- 100
     output("before, n is",n)
     prime(n)

@@ -1,5 +1,5 @@
 #![allow(warnings)]
-// RUST_LOG=info cargo r && clang-17 -lm program.o -o progra && ./program
+// RUST_LOG=info cargo r && clang-17 -lm program.o -o program && ./program
 use log::{debug, error, log_enabled, info, Level};
 
 
@@ -20,6 +20,79 @@ use parse::Rule;
 use crate::parse::{parse_expr, PRATT_PARSER};
 mod parse;
 mod compile;
+
+
+
+use inkwell::builder::{Builder, self};
+use inkwell::types::{BasicMetadataTypeEnum, BasicTypeEnum};
+use inkwell::values::{BasicMetadataValueEnum, BasicValueEnum, FloatValue, FunctionValue, PointerValue, BasicValue};
+use inkwell::{FloatPredicate, OptimizationLevel, AddressSpace};
+
+use pest::iterators::{Pairs, Pair};
+use itertools::Itertools;
+
+
+fn main() {
+    env_logger::builder()
+        .target(env_logger::Target::Pipe(Box::new(std::fs::File::create("debug.log").unwrap())))
+        .filter_level(log::LevelFilter::Debug)
+        .init();
+    
+    Target::initialize_native(&InitializationConfig::default()).expect("Failed to initialize native target");
+    info!("TargetMachine = {}",TargetMachine::get_default_triple().as_str().to_str().unwrap());
+    info!("current directory = {}",std::env::current_dir().unwrap().display());
+
+    let triple = TargetMachine::get_default_triple();
+    let cpu = TargetMachine::get_host_cpu_name().to_string();
+    let features = TargetMachine::get_host_cpu_features().to_string();
+    let target = Target::from_triple(&triple).unwrap();
+    info!("triple: {triple}");
+    info!("cpu: {cpu}");
+    info!("features: {features}");
+
+    let optlev = OptimizationLevel::Aggressive;
+    let relocmode = RelocMode::PIC;
+    let codemodel = CodeModel::Medium;
+
+    info!("optimization level: {optlev:?}");
+    info!("relocation mode: {relocmode:?}");
+    info!("code model: {codemodel:?}");
+
+    let machine = target
+        .create_target_machine(
+            &triple,
+            &cpu,
+            &features,
+            OptimizationLevel::Aggressive,
+            RelocMode::PIC,
+            CodeModel::Medium,//TODO: change to Small but idk if it will break things
+        )
+        .unwrap();
+    info!("initialized target machined");
+
+    let context = Context::create();
+    let module = context.create_module("program");
+    let builder = context.create_builder();
+    let mut cg=compile::Codegen{
+        context: &context,
+        module: &module,
+        builder: &builder,
+        functions: &mut HashMap::new(),
+        locals: &mut HashMap::new(),    
+        // program_name: String::from("program_out")
+    };
+    cg.compile_program("./simple_program.tups");
+    info!("compiled program");
+    println!("{}",module.print_to_string().to_string());
+    let dest = "program.o";
+    machine.write_to_file(&module, FileType::Object, dest.as_ref()).unwrap();
+    info!("written to file {dest}");
+    println!("important: please link with math library (e.x: clang -lm program.o -o program)");
+
+}
+const PROGRAM_EX: &str = include_str!("program_ex.txt");
+const EXPR_EX: &str = include_str!("expr_ex.txt");
+
 
 impl std::fmt::Display for Rule {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -119,73 +192,3 @@ fn print_pairs(mut ps: Pairs<Rule>, i: usize) {
     }
 }
 
-
-use inkwell::builder::{Builder, self};
-use inkwell::types::{BasicMetadataTypeEnum, BasicTypeEnum};
-use inkwell::values::{BasicMetadataValueEnum, BasicValueEnum, FloatValue, FunctionValue, PointerValue, BasicValue};
-use inkwell::{FloatPredicate, OptimizationLevel, AddressSpace};
-
-use pest::iterators::{Pairs, Pair};
-use itertools::Itertools;
-
-
-fn main() {
-    env_logger::builder()
-        .target(env_logger::Target::Pipe(Box::new(std::fs::File::create("debug.log").unwrap())))
-        .filter_level(log::LevelFilter::Debug)
-        .init();
-    
-    Target::initialize_native(&InitializationConfig::default()).expect("Failed to initialize native target");
-    info!("TargetMachine = {}",TargetMachine::get_default_triple().as_str().to_str().unwrap());
-    info!("current directory = {}",std::env::current_dir().unwrap().display());
-
-    let triple = TargetMachine::get_default_triple();
-    let cpu = TargetMachine::get_host_cpu_name().to_string();
-    let features = TargetMachine::get_host_cpu_features().to_string();
-    let target = Target::from_triple(&triple).unwrap();
-    info!("triple: {triple}");
-    info!("cpu: {cpu}");
-    info!("features: {features}");
-
-    let optlev = OptimizationLevel::Aggressive;
-    let relocmode = RelocMode::PIC;
-    let codemodel = CodeModel::Medium;
-
-    info!("optimization level: {optlev:?}");
-    info!("relocation mode: {relocmode:?}");
-    info!("code model: {codemodel:?}");
-
-    let machine = target
-        .create_target_machine(
-            &triple,
-            &cpu,
-            &features,
-            OptimizationLevel::Aggressive,
-            RelocMode::PIC,
-            CodeModel::Medium,//TODO: change to Small but idk if it will break things
-        )
-        .unwrap();
-    info!("initialized target machined");
-
-    let context = Context::create();
-    let module = context.create_module("program");
-    let builder = context.create_builder();
-    let mut cg=compile::Codegen{
-        context: &context,
-        module: &module,
-        builder: &builder,
-        functions: &mut HashMap::new(),
-        locals: &mut HashMap::new(),    
-        // program_name: String::from("program_out")
-    };
-    cg.compile_program("./simple_program.tups");
-    info!("compiled program");
-    println!("{}",module.print_to_string().to_string());
-    let dest = "program.o";
-    machine.write_to_file(&module, FileType::Object, dest.as_ref()).unwrap();
-    info!("written to file {dest}");
-    println!("important: please link with math library (e.x: clang -lm program.o -o program)");
-
-}
-const PROGRAM_EX: &str = include_str!("program_ex.txt");
-const EXPR_EX: &str = include_str!("expr_ex.txt");
