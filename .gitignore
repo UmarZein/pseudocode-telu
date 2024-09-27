@@ -4,3 +4,4 @@
 **/*.exe
 **/*.asm
 **/program
+**/*.lock

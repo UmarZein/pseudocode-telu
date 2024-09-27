@@ -7,5 +7,4 @@ fn main(){
     } else {
         // i don't use mac
     };
-
 }
