@@ -1,5 +1,6 @@
 #![allow(warnings)]
-// RUST_LOG=info cargo r && clang-17 -lm program.o -o progra && ./program
+// RUST_LOG=info cargo r && clang-17 -lm program.o -o program && ./program
+// RUST_LOG=info cargo r && clang -lm program.o -o program && ./program
 use log::{debug, error, log_enabled, info, Level};
 
 

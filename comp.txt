@@ -1,0 +1,78 @@
+warning: unused manifest key: build
+       Fresh unicode-ident v1.0.12
+       Fresh memchr v2.7.1
+       Fresh cc v1.0.90 (https://github.com/rust-lang/cc-rs?branch=fix/compile-family-detection#1ab8a9de)
+       Fresh proc-macro2 v1.0.79
+       Fresh regex-lite v0.1.5
+       Fresh lazy_static v1.4.0
+       Fresh ucd-trie v0.1.6
+       Fresh quote v1.0.35
+       Fresh windows_x86_64_gnu v0.52.4
+       Fresh semver v1.0.22
+       Fresh anyhow v1.0.81
+       Fresh aho-corasick v1.1.2
+       Fresh regex-syntax v0.8.2
+       Fresh once_cell v1.19.0
+       Fresh syn v2.0.52
+       Fresh windows-targets v0.52.4
+       Fresh regex-automata v0.4.6
+       Fresh anstyle v1.0.6
+       Fresh thiserror-impl v1.0.58
+       Fresh windows-sys v0.52.0
+       Fresh serde_derive v1.0.197
+       Fresh utf8parse v0.2.1
+       Fresh regex v1.10.3
+       Fresh thiserror v1.0.58
+       Fresh anstyle-parse v0.2.3
+       Fresh anstyle-query v1.0.2
+       Fresh serde v1.0.197
+       Fresh anstyle-wincon v3.0.2
+       Fresh libc v0.2.153
+       Fresh itoa v1.0.10
+       Fresh colorchoice v1.0.0
+       Fresh either v1.10.0
+       Fresh log v0.4.21
+       Fresh ryu v1.0.17
+       Fresh llvm-sys v170.0.1 (https://gitlab.com/UmarZein/llvm-sys-rs-cc-fix.git?branch=llvm-17.0#91f00ef1)
+       Fresh anstream v0.6.13
+       Fresh inkwell_internals v0.9.0 (https://github.com/UmarZein/inkwell-cc-rs-fix.git#735977b9)
+       Fresh pest_meta v2.7.8
+       Fresh serde_json v1.0.114
+       Fresh env_filter v0.1.0
+       Fresh humantime v2.1.0
+       Fresh itertools v0.10.5
+       Fresh pest_generator v2.7.8
+       Fresh pest v2.7.8
+       Fresh inkwell v0.4.0 (https://github.com/UmarZein/inkwell-cc-rs-fix.git#735977b9)
+       Fresh env_logger v0.11.3
+       Fresh pest_derive v2.7.8
+   Compiling telkom_university_pseudocode v0.1.0 (C:\Users\umarzein\Desktop\pseudocode-telu)
+     Running `rustc --crate-name telkom_university_pseudocode --edition=2021 'src\main.rs' --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --diagnostic-width=132 --crate-type bin --emit=dep-info,link -C embed-bitcode=no -C debuginfo=2 -C metadata=d670c7695376097e -C extra-filename=-d670c7695376097e --out-dir 'C:\Users\umarzein\Desktop\pseudocode-telu\target\debug\deps' -C 'linker=C:\msys64\mingw64\bin\gcc.exe' -C 'incremental=C:\Users\umarzein\Desktop\pseudocode-telu\target\debug\incremental' -L 'dependency=C:\Users\umarzein\Desktop\pseudocode-telu\target\debug\deps' --extern 'env_logger=C:\Users\umarzein\Desktop\pseudocode-telu\target\debug\deps\libenv_logger-928886e744bfef68.rlib' --extern 'inkwell=C:\Users\umarzein\Desktop\pseudocode-telu\target\debug\deps\libinkwell-ca2f57c3530646db.rlib' --extern 'itertools=C:\Users\umarzein\Desktop\pseudocode-telu\target\debug\deps\libitertools-06e301da1a27583c.rlib' --extern 'lazy_static=C:\Users\umarzein\Desktop\pseudocode-telu\target\debug\deps\liblazy_static-12595508fd1f2e7e.rlib' --extern 'log=C:\Users\umarzein\Desktop\pseudocode-telu\target\debug\deps\liblog-664ec8ae59475ea6.rlib' --extern 'pest=C:\Users\umarzein\Desktop\pseudocode-telu\target\debug\deps\libpest-c32d0cf6c5bfaadb.rlib' --extern 'pest_derive=C:\Users\umarzein\Desktop\pseudocode-telu\target\debug\deps\pest_derive-64c0a001f4482919.dll' --extern 'serde=C:\Users\umarzein\Desktop\pseudocode-telu\target\debug\deps\libserde-ef6e90fa512986e6.rlib' --extern 'serde_json=C:\Users\umarzein\Desktop\pseudocode-telu\target\debug\deps\libserde_json-f451d368cd64d17e.rlib' -L 'native=C:\Users\umarzein\.cargo\registry\src\index.crates.io-6f17d22bba15001f\windows_x86_64_gnu-0.52.4\lib' -L 'native=C:\Users\umarzein\Desktop\pseudocode-telu\target\debug\build\llvm-sys-cc62c86bc0d3f66e\out' -L 'native=C:/msys64/mingw64/lib'`
+error: linking with `C:\msys64\mingw64\bin\gcc.exe` failed: exit code: 1
+  |
+  = note: "C:\\msys64\\mingw64\\bin\\gcc.exe" "-fno-use-linker-plugin" "-Wl,--dynamicbase" "-Wl,--disable-auto-image-base" "-m64" "-Wl,--high-entropy-va" "C:\\Users\\umarzein\\.rustup\\toolchains\\stable-x86_64-pc-windows-gnu\\lib\\rustlib\\x86_64-pc-windows-gnu\\lib\\rsbegin.o" [...] "C:\\Users\\umarzein\\Desktop\\pseudocode-telu\\target\\debug\\deps\\telkom_university_pseudocode-d670c7695376097e.exe" "-Wl,--gc-sections" "-no-pie" "-nodefaultlibs" "C:\\Users\\umarzein\\.rustup\\toolchains\\stable-x86_64-pc-windows-gnu\\lib\\rustlib\\x86_64-pc-windows-gnu\\lib\\rsend.o"
+  = note: C:/msys64/mingw64/bin/../lib/gcc/x86_64-w64-mingw32/13.2.0/../../../../x86_64-w64-mingw32/bin/ld.exe: C:/msys64/mingw64/lib\libpthread.a(libwinpthread_la-thread.o):(.text+0x10b0): multiple definition of `pthread_once'; C:/msys64/mingw64/lib/libpthread.dll.a(libwinpthread_1_dll_d000091.o):(.text+0x0): first defined here
+          C:/msys64/mingw64/bin/../lib/gcc/x86_64-w64-mingw32/13.2.0/../../../../x86_64-w64-mingw32/bin/ld.exe: C:\Users\umarzein\Desktop\pseudocode-telu\target\debug\deps\libllvm_sys-4b2d24dd31766b4d.rlib(ExternalFunctions.cpp.obj):(.text$_ZN4llvm11Interpreter20callExternalFunctionEPNS_8FunctionENS_8ArrayRefINS_12GenericValueEEE+0xcbb): undefined reference to `ffi_prep_cif'
+          C:/msys64/mingw64/bin/../lib/gcc/x86_64-w64-mingw32/13.2.0/../../../../x86_64-w64-mingw32/bin/ld.exe: C:\Users\umarzein\Desktop\pseudocode-telu\target\debug\deps\libllvm_sys-4b2d24dd31766b4d.rlib(ExternalFunctions.cpp.obj):(.text$_ZN4llvm11Interpreter20callExternalFunctionEPNS_8FunctionENS_8ArrayRefINS_12GenericValueEEE+0xdd2): undefined reference to `ffi_call'
+          C:/msys64/mingw64/bin/../lib/gcc/x86_64-w64-mingw32/13.2.0/../../../../x86_64-w64-mingw32/bin/ld.exe: C:\Users\umarzein\Desktop\pseudocode-telu\target\debug\deps\libllvm_sys-4b2d24dd31766b4d.rlib(ExternalFunctions.cpp.obj):(.rdata+0x0): undefined reference to `ffi_type_sint8'
+          C:/msys64/mingw64/bin/../lib/gcc/x86_64-w64-mingw32/13.2.0/../../../../x86_64-w64-mingw32/bin/ld.exe: C:\Users\umarzein\Desktop\pseudocode-telu\target\debug\deps\libllvm_sys-4b2d24dd31766b4d.rlib(ExternalFunctions.cpp.obj):(.rdata+0x8): undefined reference to `ffi_type_sint16'
+          C:/msys64/mingw64/bin/../lib/gcc/x86_64-w64-mingw32/13.2.0/../../../../x86_64-w64-mingw32/bin/ld.exe: C:\Users\umarzein\Desktop\pseudocode-telu\target\debug\deps\libllvm_sys-4b2d24dd31766b4d.rlib(ExternalFunctions.cpp.obj):(.rdata+0x10): undefined reference to `ffi_type_sint8'
+          C:/msys64/mingw64/bin/../lib/gcc/x86_64-w64-mingw32/13.2.0/../../../../x86_64-w64-mingw32/bin/ld.exe: C:\Users\umarzein\Desktop\pseudocode-telu\target\debug\deps\libllvm_sys-4b2d24dd31766b4d.rlib(ExternalFunctions.cpp.obj):(.rdata+0x18): undefined reference to `ffi_type_sint32'
+          C:/msys64/mingw64/bin/../lib/gcc/x86_64-w64-mingw32/13.2.0/../../../../x86_64-w64-mingw32/bin/ld.exe: C:\Users\umarzein\Desktop\pseudocode-telu\target\debug\deps\libllvm_sys-4b2d24dd31766b4d.rlib(ExternalFunctions.cpp.obj):(.rdata+0x20): undefined reference to `ffi_type_sint8'
+          C:/msys64/mingw64/bin/../lib/gcc/x86_64-w64-mingw32/13.2.0/../../../../x86_64-w64-mingw32/bin/ld.exe: C:\Users\umarzein\Desktop\pseudocode-telu\target\debug\deps\libllvm_sys-4b2d24dd31766b4d.rlib(ExternalFunctions.cpp.obj):(.rdata+0x28): undefined reference to `ffi_type_sint8'
+          C:/msys64/mingw64/bin/../lib/gcc/x86_64-w64-mingw32/13.2.0/../../../../x86_64-w64-mingw32/bin/ld.exe: C:\Users\umarzein\Desktop\pseudocode-telu\target\debug\deps\libllvm_sys-4b2d24dd31766b4d.rlib(ExternalFunctions.cpp.obj):(.rdata+0x30): undefined reference to `ffi_type_sint8'
+          C:/msys64/mingw64/bin/../lib/gcc/x86_64-w64-mingw32/13.2.0/../../../../x86_64-w64-mingw32/bin/ld.exe: C:\Users\umarzein\Desktop\pseudocode-telu\target\debug\deps\libllvm_sys-4b2d24dd31766b4d.rlib(ExternalFunctions.cpp.obj):(.rdata+0x38): undefined reference to `ffi_type_sint64'
+          C:/msys64/mingw64/bin/../lib/gcc/x86_64-w64-mingw32/13.2.0/../../../../x86_64-w64-mingw32/bin/ld.exe: C:\Users\umarzein\Desktop\pseudocode-telu\target\debug\deps\libllvm_sys-4b2d24dd31766b4d.rlib(ExternalFunctions.cpp.obj):(.rdata$.refptr.ffi_type_double[.refptr.ffi_type_double]+0x0): undefined reference to `ffi_type_double'
+          C:/msys64/mingw64/bin/../lib/gcc/x86_64-w64-mingw32/13.2.0/../../../../x86_64-w64-mingw32/bin/ld.exe: C:\Users\umarzein\Desktop\pseudocode-telu\target\debug\deps\libllvm_sys-4b2d24dd31766b4d.rlib(ExternalFunctions.cpp.obj):(.rdata$.refptr.ffi_type_float[.refptr.ffi_type_float]+0x0): undefined reference to `ffi_type_float'
+          C:/msys64/mingw64/bin/../lib/gcc/x86_64-w64-mingw32/13.2.0/../../../../x86_64-w64-mingw32/bin/ld.exe: C:\Users\umarzein\Desktop\pseudocode-telu\target\debug\deps\libllvm_sys-4b2d24dd31766b4d.rlib(ExternalFunctions.cpp.obj):(.rdata$.refptr.ffi_type_pointer[.refptr.ffi_type_pointer]+0x0): undefined reference to `ffi_type_pointer'
+          C:/msys64/mingw64/bin/../lib/gcc/x86_64-w64-mingw32/13.2.0/../../../../x86_64-w64-mingw32/bin/ld.exe: C:\Users\umarzein\Desktop\pseudocode-telu\target\debug\deps\libllvm_sys-4b2d24dd31766b4d.rlib(ExternalFunctions.cpp.obj):(.rdata$.refptr.ffi_type_void[.refptr.ffi_type_void]+0x0): undefined reference to `ffi_type_void'
+          collect2.exe: error: ld returned 1 exit status
+
+  = note: some `extern` functions couldn't be found; some native libraries may need to be installed or have their path specified
+  = note: use the `-l` flag to specify native libraries to link
+  = note: use the `cargo:rustc-link-lib` directive to specify the native libraries to link with Cargo (see https://doc.rust-lang.org/cargo/reference/build-scripts.html#cargorustc-link-libkindname)
+
+error: could not compile `telkom_university_pseudocode` (bin "telkom_university_pseudocode") due to 1 previous error
+
+Caused by:
+  process didn't exit successfully: `rustc --crate-name telkom_university_pseudocode --edition=2021 'src\main.rs' --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --diagnostic-width=132 --crate-type bin --emit=dep-info,link -C embed-bitcode=no -C debuginfo=2 -C metadata=d670c7695376097e -C extra-filename=-d670c7695376097e --out-dir 'C:\Users\umarzein\Desktop\pseudocode-telu\target\debug\deps' -C 'linker=C:\msys64\mingw64\bin\gcc.exe' -C 'incremental=C:\Users\umarzein\Desktop\pseudocode-telu\target\debug\incremental' -L 'dependency=C:\Users\umarzein\Desktop\pseudocode-telu\target\debug\deps' --extern 'env_logger=C:\Users\umarzein\Desktop\pseudocode-telu\target\debug\deps\libenv_logger-928886e744bfef68.rlib' --extern 'inkwell=C:\Users\umarzein\Desktop\pseudocode-telu\target\debug\deps\libinkwell-ca2f57c3530646db.rlib' --extern 'itertools=C:\Users\umarzein\Desktop\pseudocode-telu\target\debug\deps\libitertools-06e301da1a27583c.rlib' --extern 'lazy_static=C:\Users\umarzein\Desktop\pseudocode-telu\target\debug\deps\liblazy_static-12595508fd1f2e7e.rlib' --extern 'log=C:\Users\umarzein\Desktop\pseudocode-telu\target\debug\deps\liblog-664ec8ae59475ea6.rlib' --extern 'pest=C:\Users\umarzein\Desktop\pseudocode-telu\target\debug\deps\libpest-c32d0cf6c5bfaadb.rlib' --extern 'pest_derive=C:\Users\umarzein\Desktop\pseudocode-telu\target\debug\deps\pest_derive-64c0a001f4482919.dll' --extern 'serde=C:\Users\umarzein\Desktop\pseudocode-telu\target\debug\deps\libserde-ef6e90fa512986e6.rlib' --extern 'serde_json=C:\Users\umarzein\Desktop\pseudocode-telu\target\debug\deps\libserde_json-f451d368cd64d17e.rlib' -L 'native=C:\Users\umarzein\.cargo\registry\src\index.crates.io-6f17d22bba15001f\windows_x86_64_gnu-0.52.4\lib' -L 'native=C:\Users\umarzein\Desktop\pseudocode-telu\target\debug\build\llvm-sys-cc62c86bc0d3f66e\out' -L 'native=C:/msys64/mingw64/lib'` (exit code: 1)

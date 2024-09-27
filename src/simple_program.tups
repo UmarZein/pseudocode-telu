@@ -26,6 +26,7 @@ program yomyman
 kamus 
     n: integer
 algoritma 
+    output("this is a new program, built in windows...")
     n <- 100
     output("before, n is",n)
     prime(n)
