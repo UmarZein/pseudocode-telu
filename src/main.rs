@@ -51,8 +51,8 @@ fn main() {
     info!("features: {features}");
 
     let optlev = OptimizationLevel::Aggressive;
-    let relocmode = RelocMode::PIC;
-    let codemodel = CodeModel::Medium;
+    let relocmode = RelocMode::DynamicNoPic;
+    let codemodel = CodeModel::Small;
 
     info!("optimization level: {optlev:?}");
     info!("relocation mode: {relocmode:?}");
@@ -63,9 +63,9 @@ fn main() {
             &triple,
             &cpu,
             &features,
-            OptimizationLevel::Aggressive,
-            RelocMode::PIC,
-            CodeModel::Medium,//TODO: change to Small but idk if it will break things
+            optlev,
+            relocmode,
+            codemodel,//TODO: change to Small but idk if it will break things
         )
         .unwrap();
     info!("initialized target machined");
@@ -85,7 +85,9 @@ fn main() {
     info!("compiled program");
     println!("{}",module.print_to_string().to_string());
     let dest = "program.o";
+    let dest_asm = "program.asm";
     machine.write_to_file(&module, FileType::Object, dest.as_ref()).unwrap();
+    machine.write_to_file(&module, FileType::Assembly, dest_asm.as_ref()).unwrap();
     info!("written to file {dest}");
     println!("important: please link with math library (e.x: clang -lm program.o -o program)");
 

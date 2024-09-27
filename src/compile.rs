@@ -51,12 +51,27 @@ pub enum Type{
 }
 
 impl<'ctx> Type{
+    pub fn correct_alignment(&self) -> u32 {
+        let tmp = (match self{
+            Type::Int => std::mem::size_of::<usize>(),
+            Type::Float => std::mem::size_of::<usize>(),
+            Type::Char => 1,
+            Type::Bool => 1, // because look at fn into_bte (it is i8)
+            Type::String => std::mem::size_of::<usize>(),
+            Type::Void => std::mem::size_of::<usize>(),
+            Type::VoidPtr => std::mem::size_of::<usize>(),
+            Type::Array(_, _, _) => todo!(),
+            Type::Ptr(_) => std::mem::size_of::<usize>(),
+        }) as u32;
+        info!("{self:?}'s alignment is {tmp}");
+        tmp
+    }
     pub fn into_bte(&self, context: &'ctx Context) -> BasicTypeEnum<'ctx>{
         match self{
             Type::Int     => context.i64_type().into(),
             Type::Float   => context.f64_type().into(),
             Type::Char    => context.i8_type().into(),
-            Type::Bool    => context.bool_type().into(),
+            Type::Bool    => context.i8_type().into(),
             Type::String  => context.i8_type().ptr_type(AddressSpace::default()).into(),
             Type::VoidPtr => context.i8_type().ptr_type(AddressSpace::default()).into(),
             Type::Array(one,s,i)  => i.as_ref().into_bte(context).array_type(*s).into(),
@@ -175,7 +190,7 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
         info!("done printing pairs");
         let main_fn = self.register_func_unnamed_params("main", Type::Int, vec![]);
         self.context.append_basic_block(main_fn, "mainf_entry");
-        self.add_alloc();
+        //TODO uncomment this: self.add_alloc();
         self.add_printf();
         self.add_scanf();
         self.add_output();
@@ -612,17 +627,19 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                     return None
                 }
                 let btetyp = typ.into_bte(self.context);
-                Some(match typ.clone(){
+                let x = (match typ.clone(){
                     Type::Void => todo!(),
                     Type::VoidPtr => todo!(),
-                    Type::Int => self.builder.build_load(btetyp.into_int_type(), ptr, "loadpath").unwrap(),
-                    Type::Float => self.builder.build_load(btetyp.into_float_type(), ptr, "loadpath").unwrap(),
-                    Type::Char => self.builder.build_load(btetyp.into_int_type(), ptr, "loadpath").unwrap(),
-                    Type::Bool => self.builder.build_load(btetyp.into_int_type(), ptr, "loadpath").unwrap(),
-                    Type::String => self.builder.build_load(btetyp.into_pointer_type(), ptr, "loadpath").unwrap(),
-                    Type::Array(one, s, i) => self.builder.build_load(btetyp.into_array_type(), ptr, "loadpath").unwrap(),
-                    Type::Ptr(_) => self.builder.build_load(btetyp.into_pointer_type(), ptr, "loadpath").unwrap(), 
-                })
+                    Type::Int => self.builder.build_load(btetyp.into_int_type(), ptr, "loadintpath").unwrap(),
+                    Type::Float => self.builder.build_load(btetyp.into_float_type(), ptr, "loadfloatpath").unwrap(),
+                    Type::Char => self.builder.build_load(btetyp.into_int_type(), ptr, "loadcharpath").unwrap(),
+                    Type::Bool => self.builder.build_load(btetyp.into_int_type(), ptr, "loadboolpath").unwrap(),
+                    Type::String => self.builder.build_load(btetyp.into_pointer_type(), ptr, "loadstringpath").unwrap(),
+                    Type::Array(one, s, i) => self.builder.build_load(btetyp.into_array_type(), ptr, "loadarraypath").unwrap(),
+                    Type::Ptr(_) => self.builder.build_load(btetyp.into_pointer_type(), ptr, "loadptrpath").unwrap(), 
+                });
+                x.as_instruction_value().unwrap().set_alignment(typ.correct_alignment()).unwrap();
+                Some(x)
             },
 
             Expr::Call(name, args) => {
@@ -706,6 +723,7 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                 let i8ptr = self.context.i8_type().ptr_type(AddressSpace::default());
 
                 let global_value = self.builder.build_global_string_ptr(&String::from_utf8(i).unwrap(), "globalstring").unwrap();
+                global_value.set_alignment(4);
                 Some(global_value.as_pointer_value().into())
                 // let len = i.len();
                 // let name = String::from("malloc");
@@ -764,7 +782,8 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                             let p = func.get_nth_param(parami).unwrap();
                             let ptr = self.builder.build_alloca(typ.into_bte(self.context), &var).unwrap();
                             self.locals.insert((func,var.clone()), (ptr,typ.clone()));
-                            self.builder.build_store(ptr, p).unwrap();
+                            let load_instr = self.builder.build_store(ptr, p).unwrap();
+                            load_instr.set_alignment(typ.correct_alignment()).unwrap();
                         }
                     }
                     parami+=1;
@@ -813,7 +832,8 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                         let p = func.get_nth_param(parami).unwrap();
                         let ptr = self.builder.build_alloca(typ.into_bte(self.context), &var).unwrap();
                         self.locals.insert((func,var.clone()), (ptr,typ.clone()));
-                        self.builder.build_store(ptr, p).unwrap();
+                        let load_instr = self.builder.build_store(ptr, p).unwrap();
+                        load_instr.set_alignment(typ.correct_alignment()).unwrap();
                         parami+=1;
                     }
                 }
@@ -848,7 +868,8 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                     let func = self.builder.get_insert_block().unwrap().get_parent().unwrap();
                     let val = k.next().unwrap();
                     self.locals.insert((func,ident.clone().to_string()), (var_ptr.clone(),ty.clone()));
-                    self.builder.build_store(var_ptr.into(), self.pair_to_value(val)).unwrap();
+                    let load_instr = self.builder.build_store(var_ptr.into(), self.pair_to_value(val)).unwrap();
+                    load_instr.set_alignment(ty.correct_alignment()).unwrap();
                 }
             },
             R::kamus => {
@@ -914,7 +935,11 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                             self.builder.build_conditional_branch(cond, thenblock, elseblock);
                             self.builder.position_at_end(thenblock);
                             self.compile_pest_output(dothis);
-                            self.builder.build_unconditional_branch(contblock);
+                            // if thenblock has return statement, then the line below adds br after
+                            // ret... this will cause error
+                            if self.builder.get_insert_block().unwrap().get_terminator().is_none(){
+                                self.builder.build_unconditional_branch(contblock);
+                            }
                             self.builder.position_at_end(elseblock);
                         },
                         (Some(dothis), None) => {
@@ -925,7 +950,12 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                         _ => break
                     }
                 }
-                self.builder.build_unconditional_branch(contblock);
+                //
+                // if elseblock has return statement, then the line below adds br after
+                // ret... this will cause error
+                if self.builder.get_insert_block().unwrap().get_terminator().is_none(){
+                    self.builder.build_unconditional_branch(contblock);
+                }
                 self.builder.position_at_end(contblock);
             }
             R::asgnstmt => {
@@ -956,10 +986,11 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                     R::pathident => self.locals.get(&(func, next.as_str().to_string())).unwrap().clone(),
                     _ => unreachable!(),
                 };
-                if let (Type::Ptr(_), Type::Int) = (var_typ,etyp){
+                if let (Type::Ptr(_), Type::Int) = (var_typ.clone(),etyp){
                     todo!("implement assign int to ptr")
                 } else {
-                    self.builder.build_store(var_ptr.clone(), compiled_expr);
+                    let load_instr = self.builder.build_store(var_ptr.clone(), compiled_expr).unwrap();
+                    load_instr.set_alignment(var_typ.correct_alignment()).unwrap();
                 }
             }
             R::retstmt => {
@@ -1050,6 +1081,11 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
             itype.iter().map(|t|(false,false,String::new(),t.clone())).collect(), 
             true, Some(Linkage::External))
     }
+    pub fn register_variadic_libc_func(&mut self, name: &str, otype: Type, itype: Vec<Type>) -> FunctionValue<'ctx>{
+        self._register_function(name, otype, 
+            itype.iter().map(|t|(false,false,String::new(),t.clone())).collect(), 
+            true, Some(Linkage::External))
+    }
     pub fn register_libc_func(&mut self, name: &str, otype: Type, itype: Vec<Type>) -> FunctionValue<'ctx>{
         self._register_function(name, otype, 
             itype.iter().map(|t|(false,false,String::new(),t.clone())).collect(), 
@@ -1089,10 +1125,10 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
         self.register_libc_func("malloc", Type::VoidPtr, vec![Type::Int]);
     }
     pub fn add_printf(&mut self){
-        self.register_libc_func("printf", Type::Int, vec![Type::String]);
+        self.register_variadic_libc_func("printf", Type::Int, vec![Type::String]);
     }
     pub fn add_scanf(&mut self){
-        self.register_libc_func("scanf", Type::Int, vec![Type::VoidPtr]);
+        self.register_variadic_libc_func("scanf", Type::Int, vec![Type::VoidPtr]);
     }
     pub fn add_output(&mut self){
         let main_fn = self.module.get_function("main").unwrap();
@@ -1100,14 +1136,24 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
         self.builder.position_at_end(entry);
 
         let space = self.builder.build_global_string_ptr(" ", "space").unwrap();
+        space.set_alignment(4);
         
 
         let newline_fstr = self.builder.build_global_string_ptr("\n", "newline").unwrap();
+        newline_fstr.set_alignment(4);
         let char_fstr = self.builder.build_global_string_ptr("%c", "char_fstr").unwrap();
+        char_fstr.set_alignment(4);
         let string_fstr = self.builder.build_global_string_ptr("%s", "string_fstr").unwrap();
-        let i64_fstr = self.builder.build_global_string_ptr("%ld", "long_fstr").unwrap();
+        string_fstr.set_alignment(4);
+
+        // story time: it took my at least 6 hours of the night to figure out that %lld is the
+        // correct i64 format specifier rather than %ld
+        let i64_fstr = self.builder.build_global_string_ptr("%lld", "long_fstr").unwrap();
+        i64_fstr.set_alignment(4);
         let f64_fstr = self.builder.build_global_string_ptr("%f", "double_fstr").unwrap();
-        let bool_fstr = self.builder.build_global_string_ptr("%b", "bool_fstr").unwrap();
+        f64_fstr.set_alignment(4);
+        let bool_fstr = self.builder.build_global_string_ptr("%hhd", "bool_fstr").unwrap();
+        bool_fstr.set_alignment(4);
         let printf = self.module.get_function("printf").unwrap();
         let scanf = self.module.get_function("scanf").unwrap();
 
