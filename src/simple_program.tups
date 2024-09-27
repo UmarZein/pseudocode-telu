@@ -1,37 +1,44 @@
-procedure prime(in/out n: integer) 
+function isPrime(in n: integer) -> bool 
 kamus 
-    i,j,total: integer
-    p: bool
-algoritma
-    total <- 0
-    i<-2
-    while i<n do 
-        p <- true
-        j<-2
-        while j*j<=i do 
-            if i mod j == 0 then 
-                p <- false
-            endif
-            j <- j+1
-        endwhile
-        if p then 
-            total <- total + 1
-            output(i,"is prime")
-        endif
-        i <- i+1
+    u: integer 
+    b: bool 
+algoritma 
+    b <- true 
+    u <- 2 
+    while u*u-1<n do 
+        if n mod u == 0 then 
+            return false 
+        endif 
+        u <- u+1 
     endwhile
-    n <- total
+    return true
+endfunction
+    
+procedure prime(in n: integer)
+kamus 
+    i,j: integer 
+algoritma 
+    i <- 2
+    while i<n do 
+        j <- 2
+        if isPrime(i) then 
+            output(i, "is prime!")
+        endif
+        i <- i+1 
+    endwhile 
 endprocedure
 
-
-program yomyman
-kamus 
+program primes
+kamus
     n: integer
 algoritma 
-    output("irfan")
-    n <- 100
-    output("before, n is",n)
-    prime(n)
-    output("now, n is",n)
+    n <- 0
+    output("please input n...")
+    input(n)
+    if isPrime(n) then 
+        output(n,"is prime!")
+    else
+        output(n,"is not prime!")
+    endif
     return 1
 endprogram

@@ -22,7 +22,10 @@ lazy_static::lazy_static! {
             .op(Op::infix(add, Left) | Op::infix(sub, Left))
             .op(Op::infix(mul, Left) | Op::infix(div, Left) | Op::infix(idv, Left) | Op::infix(mdl, Left))
             .op(Op::infix(pow, Left))
+            .op(Op::infix(lor, Left))
+            .op(Op::infix(land, Left))
             .op(Op::prefix(neg))
+            .op(Op::prefix(not))
     };
 }
 
@@ -31,6 +34,8 @@ lazy_static::lazy_static! {
 pub enum Expr{
     Equ(Box<(Expr, Expr)>),
     Neq(Box<(Expr, Expr)>),
+    Land(Box<(Expr, Expr)>),
+    Lor(Box<(Expr, Expr)>),
     Gt(Box<(Expr, Expr)>),
     Lt(Box<(Expr, Expr)>),
     Ge(Box<(Expr, Expr)>),
@@ -43,6 +48,7 @@ pub enum Expr{
     Mod(Box<(Expr, Expr)>),
     Pow(Box<(Expr, Expr)>),
     Neg(Box<Expr>),
+    Not(Box<Expr>),
     Pathident(String),
     Call(String, Vec<Expr>),
     Int(i64),
@@ -69,6 +75,7 @@ pub fn simple_expr_str(e: &Expr) -> String{
         Expr::Mod(_) => format!("Mod"),
         Expr::Pow(_) => format!("Pow"),
         Expr::Neg(_) => format!("Neg"),
+        Expr::Not(_) => format!("Not"),
         Expr::Pathident(a) => format!("Pathident: {a}"),
         Expr::Call(n, v) => format!("Call {n} with {} args",v.len()),
         Expr::Int(a) => format!("Int: {a}"),
@@ -77,6 +84,8 @@ pub fn simple_expr_str(e: &Expr) -> String{
         Expr::Char(a) => format!("Char: {}",*a as u8),
         Expr::Str(a) => format!("Str: {}",String::from_utf8(a.clone()).unwrap()),
         Expr::Nil => format!("Nil"),
+        Expr::Land(_) => format!("Band"),
+        Expr::Lor(_) =>  format!("Bor"),
     }
 }
 
@@ -128,10 +137,11 @@ pub fn parse_expr(pairs: Pairs<Rule>) -> Expr {
             R::expr => {
                 parse_expr(primary.into_inner())
             },
-            _ => unreachable!()
+            case => unreachable!("case is {case}")
         })
         .map_prefix(|op, rhs| match op.as_rule() {
             R::neg => {Neg(Box::new(rhs))}
+            R::not => {Not(Box::new(rhs))}
             _ => unreachable!()
         })
         // .map_postfix(|lhs, op| match op.as_rule() {
@@ -151,6 +161,8 @@ pub fn parse_expr(pairs: Pairs<Rule>) -> Expr {
             R::idv => Idv(Box::new((lhs,rhs))),
             R::mdl => Mod(Box::new((lhs,rhs))),
             R::pow => Pow(Box::new((lhs,rhs))),
+            R::lor => Lor(Box::new((lhs,rhs))),
+            R::land => Land(Box::new((lhs,rhs))),
             _          => unreachable!(),
         })
         .parse(pairs)

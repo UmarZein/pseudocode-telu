@@ -98,6 +98,9 @@ impl std::fmt::Display for Rule {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Rule::gep => write!(f,"gep"),
+            Rule::not => write!(f,"not"),
+            Rule::land => write!(f,"land"),
+            Rule::lor => write!(f,"lor"),
             Rule::index => write!(f,"index"),
             Rule::zero_or_one => write!(f,"zero_or_one"),
             Rule::array_dim => write!(f,"array_dim"),
@@ -177,7 +180,7 @@ impl std::fmt::Display for Rule {
 }
 const DBGIND: &str = "  | ";
 fn print_pair(p: Pair<Rule>, i: usize) {
-    print!("{}{}",DBGIND.repeat(i), p.as_rule());
+    print!("{}{}", DBGIND.repeat(i), p.as_rule());
     let s = p.as_str().clone();
     let inner = p.into_inner();
     if let None = inner.clone().next(){

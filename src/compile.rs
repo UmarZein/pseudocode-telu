@@ -1,4 +1,4 @@
-use log::{debug, error, log_enabled, info, Level};
+use log::{debug, error, info, log_enabled, warn, Level};
 
 use inkwell::context::Context;
 use inkwell::intrinsics::Intrinsic;
@@ -102,15 +102,35 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
     fn find_function(&self, name: &str, itype: &[Type]) -> (FunctionValue<'ctx>,Type,Vec<(bool,bool,String,Type)>){
         info!("trying to find function {name} with {} argtypes",itype.len());
         info!("argtypes: {itype:#?}");
-        let mut funcs = self.functions.get(&name.to_string()).unwrap().clone();
+        let mut funcs = self.functions.get(&name.to_string()).unwrap_or_else(||panic!("{name} not found!")).clone();
         funcs.sort_by(|a, b|{
             b.0.get_params().len().cmp(&a.0.get_params().len())
         });
+        if name=="input"{
+            info!("printing funcs...");
+            info!("{funcs:#?}");
+        }
         let func = funcs.iter().find(|&e|{
             let fargtypes: Vec<_> = e.2.iter().map(|(a,b,c,d)|d.clone()).collect();
             if fargtypes.len()>itype.len(){ return false }
             if (!e.0.get_type().is_var_arg()) && fargtypes.len()!=itype.len(){ return false }
-            return &fargtypes[..] == &itype[..fargtypes.len()];
+            
+            // match all types f(int,int)==f(int,int)
+            // but also, we want voidptr polymorphism...
+            // such that f(*void)==f(*float)
+            return fargtypes.iter().zip(&itype[..fargtypes.len()])
+                .all(|(candidate,key)|{
+                    info!("checking {candidate:?} and {key:?}");
+                    match candidate.clone(){
+                        Type::VoidPtr => {
+                            match key{
+                                Type::Ptr(_) => true,
+                                _ => candidate==key,
+                            }
+                        },
+                        _ => candidate==key,
+                    }
+                });
         }).expect(&format!("could not find function named {name} with {} arguments",itype.len()));
         func.clone()
     }
@@ -149,12 +169,15 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
         let code = std::fs::read_to_string(source_filename).unwrap();
         let parsed = FCParser::parse(Rule::program, &code).unwrap();
         info!("done parsing {source_filename}");
+        println!("printing pairs...");
         print_pairs(parsed.clone(), 0);
+        println!("done printing pairs...");
+        info!("done printing pairs");
         let main_fn = self.register_func_unnamed_params("main", Type::Int, vec![]);
         self.context.append_basic_block(main_fn, "mainf_entry");
-
         self.add_alloc();
         self.add_printf();
+        self.add_scanf();
         self.add_output();
         // self.add_powi();
         // self.add_powf();
@@ -217,6 +240,9 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
         match expr{
             E::Equ(_)| 
             E::Neq(_)| 
+            E::Not(_)| 
+            E::Lor(_)| 
+            E::Land(_)| 
             E:: Gt(_)| 
             E:: Lt(_)| 
             E:: Ge(_)| 
@@ -246,6 +272,8 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
             E::Int(i)   => Type::Int,
             E::Float(f) => Type::Float,
             E::Bool(b)  => Type::Bool,
+            E::Land(bee) => Type::Bool,
+            E::Lor(bee) => Type::Bool,
             E::Char(c)  => Type::Char,
             E::Str(s)   => Type::String ,
             E::Nil      => todo!("NIL type is not supported"),
@@ -470,6 +498,38 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                     _ => unimplemented!()
                 })
             },
+            Expr::Land(bee) => {
+                let (a,b,typea,typeb) = self.compile_beexpr(&bee);
+                let a = a.expect("void operand");
+                let b = b.expect("void operand");
+                Some(match typea{
+                    Type::Bool => {
+                        match typeb{
+                            Type::Bool => {
+                                self.builder.build_and(a.into_int_value(), b.into_int_value(), "logicaland").unwrap().into()
+                            }
+                            _ => panic!("logical and only accepts boolean operands")
+                        }
+                    },
+                    _ => panic!("logical and only accepts boolean operands")
+                })
+            }
+            Expr::Lor(bee) => {
+                let (a,b,typea,typeb) = self.compile_beexpr(&bee);
+                let a = a.expect("void operand");
+                let b = b.expect("void operand");
+                Some(match typea{
+                    Type::Bool => {
+                        match typeb{
+                            Type::Bool => {
+                                self.builder.build_or(a.into_int_value(), b.into_int_value(), "logicaland").unwrap().into()
+                            }
+                            _ => panic!("logical and only accepts boolean operands")
+                        }
+                    },
+                    _ => panic!("logical and only accepts boolean operands")
+                })
+            }
             Expr::Idv(bee) => {
                 let (a,b,typea,typeb) = self.compile_beexpr(&bee);
                 let a = a.expect("void operand");
@@ -518,6 +578,18 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                     ], 
                     "powf").unwrap().try_as_basic_value().left().unwrap())
             },
+            Expr::Not(x) => {
+                let (inner,inner_type) = self.compile_bexpr(&x);
+                let inner = inner.expect("void operand");
+                let i64type = self.context.i64_type();
+                let one_const = i64type.const_int(1, false);
+                Some(match inner_type{
+                    Type::Bool => {
+                        self.builder.build_xor(inner.into_int_value(),one_const,"not").unwrap().into()
+                    },
+                    c => unreachable!("Not only accepts bool, but got {c:?}")
+                })
+            }
             Expr::Neg(x) => {
                 let (inner,inner_type) = self.compile_bexpr(&x);
                 let inner = inner.expect("void operand");
@@ -555,11 +627,16 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
 
             Expr::Call(name, args) => {
                 if &name=="output"{
-                    for arg in &args{
+                    for (i,arg) in args.iter().enumerate(){
                         let argtype = Self::raw_expr_type(
                             self.context, self.locals, self.functions,
                             &self.builder.get_insert_block().unwrap().get_parent().unwrap(), &arg);
                         let (func, otyp, ityp) = self.find_function(&name, &[argtype.into()]);
+                        if i>0{
+                            let (func, otyp, ityp) = self.find_function("output_space", &[]);
+                            let call = self.builder.build_direct_call(func, &[], "printnewline");
+                            let call = call.unwrap().try_as_basic_value();
+                        }
                         let call = self.builder.build_direct_call(func, 
                             &[self.compile_expr(arg.clone()).unwrap().into()], 
                             "print");
@@ -569,6 +646,21 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                     let call = self.builder.build_direct_call(func, &[], "printnewline");
                     let call = call.unwrap().try_as_basic_value();
 
+                    return None
+                } else if &name=="input"{
+                    let func = self.builder.get_insert_block().unwrap().get_parent().unwrap();
+                    for (i,arg) in args.iter().enumerate(){
+                        let varident = match &arg{
+                            Expr::Pathident(name) => name.clone(),
+                            _ => panic!("args in function 'input' should be variable identifiers"),
+                        };
+                        let (var_ptr, innertype) = self.locals.get(&(func, varident)).unwrap();
+                        let (func, otyp, ityp) = self.find_function(&name, &[Type::Ptr(Box::new(innertype.clone())).into()]);
+                        let call = self.builder.build_direct_call(func, 
+                            &[(*var_ptr).into()], 
+                            "input");
+                        let call = call.unwrap().try_as_basic_value();
+                    }
                     return None
                 }
                 let argtypes: Vec<_> = args.iter().map(|e|
@@ -953,6 +1045,11 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
             itype.iter().map(|(s,t)|(false,false,s.clone(),t.clone())).collect(), 
             false, None)
     }
+    pub fn register_libc_func_variadic(&mut self, name: &str, otype: Type, itype: Vec<Type>) -> FunctionValue<'ctx>{
+        self._register_function(name, otype, 
+            itype.iter().map(|t|(false,false,String::new(),t.clone())).collect(), 
+            true, Some(Linkage::External))
+    }
     pub fn register_libc_func(&mut self, name: &str, otype: Type, itype: Vec<Type>) -> FunctionValue<'ctx>{
         self._register_function(name, otype, 
             itype.iter().map(|t|(false,false,String::new(),t.clone())).collect(), 
@@ -994,18 +1091,36 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
     pub fn add_printf(&mut self){
         self.register_libc_func("printf", Type::Int, vec![Type::String]);
     }
+    pub fn add_scanf(&mut self){
+        self.register_libc_func("scanf", Type::Int, vec![Type::VoidPtr]);
+    }
     pub fn add_output(&mut self){
         let main_fn = self.module.get_function("main").unwrap();
         let entry =main_fn.get_first_basic_block().unwrap();
         self.builder.position_at_end(entry);
 
-        let newline_fstr = self.builder.build_global_string_ptr("\n", "fstr").unwrap();
-        let char_fstr = self.builder.build_global_string_ptr("%c ", "fstr").unwrap();
-        let string_fstr = self.builder.build_global_string_ptr("%s ", "fstr").unwrap();
-        let i64_fstr = self.builder.build_global_string_ptr("%ld ", "fstr").unwrap();
-        let f64_fstr = self.builder.build_global_string_ptr("%f ", "fstr").unwrap();
-        let bool_fstr = self.builder.build_global_string_ptr("%b ", "fstr").unwrap();
+        let space = self.builder.build_global_string_ptr(" ", "space").unwrap();
+        
+
+        let newline_fstr = self.builder.build_global_string_ptr("\n", "newline").unwrap();
+        let char_fstr = self.builder.build_global_string_ptr("%c", "char_fstr").unwrap();
+        let string_fstr = self.builder.build_global_string_ptr("%s", "string_fstr").unwrap();
+        let i64_fstr = self.builder.build_global_string_ptr("%ld", "long_fstr").unwrap();
+        let f64_fstr = self.builder.build_global_string_ptr("%f", "double_fstr").unwrap();
+        let bool_fstr = self.builder.build_global_string_ptr("%b", "bool_fstr").unwrap();
         let printf = self.module.get_function("printf").unwrap();
+        let scanf = self.module.get_function("scanf").unwrap();
+
+        let func = self.register_func_unnamed_params("output_space", Type::Void, vec![]);
+        let fblock = self.context.append_basic_block(func, "outputspace");
+        self.builder.position_at_end(fblock);
+        let pcall = self.builder.build_direct_call(
+            printf, 
+            &[
+                space.as_pointer_value().into(), 
+            ], 
+            "printspace").unwrap();
+        self.builder.build_return(None);
 
         let func = self.register_func_unnamed_params("output", Type::Void, vec![]);
         let fblock = self.context.append_basic_block(func, "outputentryempty");
@@ -1015,7 +1130,7 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
             &[
                 newline_fstr.as_pointer_value().into(), 
             ], 
-            "printi64").unwrap();
+            "printnewline").unwrap();
         self.builder.build_return(None);
 
         let func = self.register_func_unnamed_params("output", Type::Void, vec![Type::Int]);
@@ -1082,6 +1197,79 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
             ], 
             "printfstring").unwrap();
         self.builder.build_return(None);
+
+        ////// 
+
+        // let func = self.register_func_unnamed_params("input", Type::Void, vec![]);
+        // let fblock = self.context.append_basic_block(func, "inputentryempty");
+        // self.builder.position_at_end(fblock);
+        // self.builder.build_return(None);
+
+        let func = self.register_func_unnamed_params("input", Type::Void, vec![Type::Ptr(Box::new(Type::Int))]);
+        let fblock = self.context.append_basic_block(func, "inputentryi64");
+        self.builder.position_at_end(fblock);
+        let param= func.get_first_param().unwrap();
+        let pcall = self.builder.build_direct_call(
+            scanf, 
+            &[
+                i64_fstr.as_pointer_value().into(), 
+                param.into()
+            ], 
+            "scani64").unwrap();
+        self.builder.build_return(None);
+
+        let func = self.register_func_unnamed_params("input", Type::Void, vec![Type::Float]);
+        let fblock = self.context.append_basic_block(func, "inputentryf64");
+        self.builder.position_at_end(fblock);
+        let param= func.get_first_param().unwrap();
+        let pcall = self.builder.build_direct_call(
+            scanf, 
+            &[
+                f64_fstr.as_pointer_value().into(), 
+                param.into()
+            ], 
+            "scanf64").unwrap();
+        self.builder.build_return(None);
+
+        // let func = self.register_func_unnamed_params("input", Type::Void, vec![Type::Bool]);
+        // let fblock = self.context.append_basic_block(func, "inputentrybool");
+        // self.builder.position_at_end(fblock);
+        // let param= func.get_first_param().unwrap();
+        // let pcall = self.builder.build_direct_call(
+        //     scanf, 
+        //     &[
+        //         bool_fstr.as_pointer_value().into(), 
+        //         param.into()
+        //     ], 
+        //     "scanfbool").unwrap();
+        // self.builder.build_return(None);
+
+        let func = self.register_func_unnamed_params("input", Type::Void, vec![Type::Char]);
+        let fblock = self.context.append_basic_block(func, "inputentrychar");
+        self.builder.position_at_end(fblock);
+        let param= func.get_first_param().unwrap();
+        let pcall = self.builder.build_direct_call(
+            scanf, 
+            &[
+                char_fstr.as_pointer_value().into(), 
+                param.into()
+            ], 
+            "scanfchar").unwrap();
+        self.builder.build_return(None);
+
+        let func = self.register_func_unnamed_params("input", Type::Void, vec![Type::String]);
+        let fblock = self.context.append_basic_block(func, "inputentrystring");
+        self.builder.position_at_end(fblock);
+        let param= func.get_first_param().unwrap();
+        let pcall = self.builder.build_direct_call(
+            scanf, 
+            &[
+                string_fstr.as_pointer_value().into(), 
+                param.into()
+            ], 
+            "scanfstring").unwrap();
+        self.builder.build_return(None);
+
 
     }
     // pub fn add_powi(&self){

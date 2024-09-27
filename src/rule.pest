@@ -129,7 +129,11 @@ expr       =   { prefix? ~ primary ~ postfix? ~ (infix ~ prefix? ~ primary ~ pos
                     add | sub | mul 
                     | idv | div | pow | ge | gt
                     | le | lt| equ | mdl
+                    | land | lor
                 }
+      not   =   { "not" } // Logical Not
+      land   =   { "and" } // Logical And
+      lor    =   { "or" } // Logical Or
       add    =   { "+" } // Addition
       sub    =   { "-" } // Subtraction
       mul    =   { "*" } // Multiplication
@@ -143,7 +147,7 @@ expr       =   { prefix? ~ primary ~ postfix? ~ (infix ~ prefix? ~ primary ~ pos
       le    =   { "<=" } // Less than or equal
       gt    =   { ">" } // Greater than
       ge    =   { ">=" } // Greater than or equal
-    prefix   =  _{ neg } 
+    prefix   =  _{ neg | not } 
       neg    =   { "-" } // Negation
     postfix  =  _{ !"nope"~"nope"}
     primary  =  _{ literal 
