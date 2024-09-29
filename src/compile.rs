@@ -181,7 +181,7 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
         }
     }
     pub fn compile_program(&mut self, source_filename: &str){
-        let code = std::fs::read_to_string(source_filename).unwrap();
+        let code = std::fs::read_to_string(source_filename).unwrap_or_else(|e|panic!("stdio error: {e}\nfilename = {source_filename}"));
         let parsed = FCParser::parse(Rule::program, &code).unwrap();
         info!("done parsing {source_filename}");
         println!("printing pairs...");
@@ -194,6 +194,8 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
         self.add_printf();
         self.add_scanf();
         self.add_output();
+        self.add_time();
+        self.add_rand();
         // self.add_powi();
         // self.add_powf();
         let _ = parsed.clone().map(|p|self.declare_funcs(p)).collect::<Vec<()>>();
@@ -888,7 +890,10 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                 }
 
             },
-            _ => return
+            R::type_def => {
+                todo!()
+            }
+            _ => return // to many cases just catch em all
         }
 
     }
@@ -1123,6 +1128,13 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
     pub fn add_alloc(&mut self){
         // malloc
         self.register_libc_func("malloc", Type::VoidPtr, vec![Type::Int]);
+    }
+    pub fn add_time(&mut self){
+        self.register_libc_func("time", Type::Int, vec![Type::Int]);
+    }
+    pub fn add_rand(&mut self){
+        self.register_libc_func("srand", Type::Void, vec![Type::Int]);
+        self.register_libc_func("rand", Type::Int, vec![]);
     }
     pub fn add_printf(&mut self){
         self.register_variadic_libc_func("printf", Type::Int, vec![Type::String]);

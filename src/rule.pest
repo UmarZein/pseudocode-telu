@@ -87,8 +87,9 @@ const_type_field = {
 type_def = {
     "type"
     ~ ident
+    ~ ":"
     ~ "<"
-    ~ type_field*
+    ~ (type_field ~ (","~type_field)*)?
     ~ ">"
 }
 
@@ -254,7 +255,7 @@ mainprogram = {
 }
 
 program = _{
-    (
+    WHITESPACE* ~ (
     procedure_def
     | function_def
     | type_def

@@ -2,6 +2,9 @@
 **/*.log
 **/*.o
 **/*.exe
+**/*.sh
+**/*.bak
 **/*.asm
 **/program
 **/*.lock
+**/*.c
