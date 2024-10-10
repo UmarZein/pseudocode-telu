@@ -1,5 +1,11 @@
 #![allow(warnings)]
 // RUST_LOG=info cargo r && clang-17 -lm program.o -o program && ./program
+// TODO: 
+//  - reserve keywords: template, macro,
+//  - implement all primitives: u8,i8,u16,i16,u32,i32,u64,i64,f32,f64,char,boolean,usize,isize
+//  - function wrapper: Function(name, builtin, etc. etc.)
+//  - struct wrapper: Struct(name, fields)
+//  - fix boolean type name from bool to boolean
 use log::{debug, error, log_enabled, info, Level};
 
 
@@ -22,8 +28,51 @@ use std::process::{Command, Output, exit};
 
 use crate::parse::{parse_expr, PRATT_PARSER};
 mod parse;
-mod compile;
+mod compile_funcs;
+mod type_impl;
+mod compile_pest;
+mod compile_expr;
+use inkwell::module::{Module};
+use inkwell::types::StructType;
 
+#[derive(Debug)]
+pub struct Codegen<'a, 'ctx> {
+    pub context: &'ctx Context,
+    pub module: &'a Module<'ctx>,
+    pub builder: &'a Builder<'ctx>,
+    // TODO: add bool: is_builtin to function's HasMap's key signature
+    pub functions: &'a mut HashMap<(String, Option<Linkage>), Vec<(FunctionValue<'ctx>, Type, Vec<(bool,bool,String,Type)>)>>,
+    // (FunctionScope, varIdent) -> (Ptr, varTyp) # returns the variable under the function scope
+    pub locals: &'a mut HashMap<(FunctionValue<'ctx>,String), (PointerValue<'ctx>,Type)>,
+    // (StructName, Builtin) -> (Struct, Fields: <Name, FieldTyp>) 
+    pub struct_defs: &'a mut HashMap<(String, ImplementationLevel), (StructType<'ctx>, Vec<(String,Type)>)>,
+    // pub program_name: String,
+}
+
+#[derive(Debug,Clone,Copy,PartialEq,Eq,Hash)]
+pub enum ImplementationLevel{
+    Kernel, // implemented by kernel
+    Compiler, // implemented by compiler
+    Library, // implemented by non-kernel libraries
+    Usermade, // implemented by user
+}
+
+#[derive(Debug,Clone,PartialEq,Eq)]
+pub enum Type{
+    Int,
+    Float,
+    Char,
+    Bool,
+    String,
+    Void,
+    VoidPtr,
+    StructType(ImplementationLevel, String, Vec<(String, Type)>),
+    FnType(Option<Linkage>, String, Box<Type>, Vec<(bool, bool, String, Type)>),
+    //Tuple(Vec<Type>),
+    //Enum(Vec<String>),
+    Array(bool,u32,Box<Type>),
+    Ptr(Box<Type>),
+}
 
 
 use inkwell::builder::{Builder, self};
@@ -61,7 +110,7 @@ fn main() {
     info!("cpu: {cpu}");
     info!("features: {features}");
 
-    let optlev = OptimizationLevel::Aggressive;
+    let optlev = OptimizationLevel::None;
     const relocmode: RelocMode = if cfg!(windows) { RelocMode::DynamicNoPic } else {RelocMode::PIC};
     let codemodel = CodeModel::Small;
 
@@ -84,12 +133,13 @@ fn main() {
     let context = Context::create();
     let module = context.create_module("program");
     let builder = context.create_builder();
-    let mut cg=compile::Codegen{
+    let mut cg=Codegen{
         context: &context,
         module: &module,
         builder: &builder,
         functions: &mut HashMap::new(),
         locals: &mut HashMap::new(),    
+        struct_defs: &mut HashMap::new(),
         // program_name: String::from("program_out")
     };
     cg.compile_program(prog_file);
@@ -136,11 +186,9 @@ fn get_clang(ofile: &str, name: &str) -> Result<String, String> {
 impl std::fmt::Display for Rule {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Rule::gep => write!(f,"gep"),
             Rule::not => write!(f,"not"),
             Rule::land => write!(f,"land"),
             Rule::lor => write!(f,"lor"),
-            Rule::index => write!(f,"index"),
             Rule::zero_or_one => write!(f,"zero_or_one"),
             Rule::array_dim => write!(f,"array_dim"),
             Rule::array_type => write!(f,"array_type"),
@@ -199,9 +247,7 @@ impl std::fmt::Display for Rule {
             Rule::mainprogram => write!(f,"mainprogram"),
             Rule::program => write!(f,"program"),
             Rule::user_type => write!(f,"user_type"),
-            Rule::pathident => write!(f,"pathident"),
             Rule::nil => write!(f,"nil"),
-            Rule::call => write!(f,"call"),
             Rule::integer_type => write!(f,"integer_type"),
             Rule::real_type => write!(f,"real_type"),
             Rule::bool_type => write!(f,"bool_type"),
@@ -214,6 +260,11 @@ impl std::fmt::Display for Rule {
             Rule::ifcond => write!(f,"ifcond"),
             Rule::stmt0 => write!(f,"stmt0"),
             Rule::stmt1 => write!(f,"stmt1"),
+            Rule::round_brackets_args => write!(f, "round_brackets_args"),
+            Rule::square_brackets_args => write!(f, "square_brackets_args"),
+            Rule::dot_arg => write!(f, "dot_arg"),
+            Rule::linear_expr => write!(f, "linear_expr"),
+            Rule::enclosed_expr => write!(f, "enclosed_expr"),
         }
     }
 }

@@ -49,8 +49,16 @@ pub enum Expr{
     Pow(Box<(Expr, Expr)>),
     Neg(Box<Expr>),
     Not(Box<Expr>),
-    Pathident(String),
-    Call(String, Vec<Expr>),
+    Ident(String),
+    /// `{expr}.member`
+    Pathident(Box<Expr>, String), // {expr}.member
+    //PathidentPtr(String, Box<Expr>), // 
+    /// `this(thing)`
+    /// Round Args may be interpreted as function call (i.e., funcName(args)) or gep (i.e., ptrInstance->member)
+    RoundArgs(Box<Expr>, Vec<Expr>), // {expr}({expr, }*)
+    /// `this[thing]`
+    /// `ptr[index]`
+    SquareArgs(Box<Expr>, Vec<Expr>), // {expr}[{expr, }*]
     Int(i64),
     Float(f64),
     Bool(bool),
@@ -60,32 +68,36 @@ pub enum Expr{
 }
 
 pub fn simple_expr_str(e: &Expr) -> String{
+    use Expr as E;
     match e{
-        Expr::Equ(_) => format!("Equ"),
-        Expr::Neq(_) => format!("Neq"),
-        Expr::Gt(_) => format!("Gt"),
-        Expr::Lt(_) => format!("Lt"),
-        Expr::Ge(_) => format!("Ge"),
-        Expr::Le(_) => format!("Le"),
-        Expr::Add(_) => format!("Add"),
-        Expr::Sub(_) => format!("Sub"),
-        Expr::Mul(_) => format!("Mul"),
-        Expr::Div(_) => format!("Div"),
-        Expr::Idv(_) => format!("Idv"),
-        Expr::Mod(_) => format!("Mod"),
-        Expr::Pow(_) => format!("Pow"),
-        Expr::Neg(_) => format!("Neg"),
-        Expr::Not(_) => format!("Not"),
-        Expr::Pathident(a) => format!("Pathident: {a}"),
-        Expr::Call(n, v) => format!("Call {n} with {} args",v.len()),
-        Expr::Int(a) => format!("Int: {a}"),
-        Expr::Float(a) => format!("Float: {a}"),
-        Expr::Bool(a) => format!("Bool: {a}"),
-        Expr::Char(a) => format!("Char: {}",*a as u8),
-        Expr::Str(a) => format!("Str: {}",String::from_utf8(a.clone()).unwrap()),
-        Expr::Nil => format!("Nil"),
-        Expr::Land(_) => format!("Band"),
-        Expr::Lor(_) =>  format!("Bor"),
+        E::Equ(_) => format!("Equ"),
+        E::Neq(_) => format!("Neq"),
+        E::Gt(_) => format!("Gt"),
+        E::Lt(_) => format!("Lt"),
+        E::Ge(_) => format!("Ge"),
+        E::Le(_) => format!("Le"),
+        E::Add(_) => format!("Add"),
+        E::Sub(_) => format!("Sub"),
+        E::Mul(_) => format!("Mul"),
+        E::Div(_) => format!("Div"),
+        E::Idv(_) => format!("Idv"),
+        E::Mod(_) => format!("Mod"),
+        E::Pow(_) => format!("Pow"),
+        E::Neg(_) => format!("Neg"),
+        E::Not(_) => format!("Not"),
+        E::Pathident(_, s) => format!("Pathident .{s}"),
+        E::RoundArgs(_, v) => format!("Call with {} args",v.len()),
+        E::SquareArgs(_, v) => format!("Call with {} args",v.len()),
+        E::Int(a) => format!("Int: {a}"),
+        E::Float(a) => format!("Float: {a}"),
+        E::Bool(a) => format!("Bool: {a}"),
+        E::Char(a) => format!("Char: {}",*a as u8),
+        E::Str(a) => format!("Str: {}",String::from_utf8(a.clone()).unwrap()),
+        E::Nil => format!("Nil"),
+        E::Land(_) => format!("Band"),
+        E::Lor(_) =>  format!("Bor"),
+        E::Ident(v) => format!("{v}"),
+        //E::PathidentPtr(s, _) => format!("{s}"),
     }
 }
 
@@ -98,71 +110,122 @@ impl Expr{
     }
 }
 
+
+pub fn parse_literal(pair: Pair<Rule>) -> Expr {
+    use Rule as R;
+    use Expr as E;
+    match pair.as_rule(){
+        R::float => {
+            E::Float(pair.as_str().parse().unwrap())
+        },
+        R::uint => {
+            E::Int(pair.as_str().parse().unwrap())
+        },
+        R::int => {
+            E::Int(pair.as_str().parse().unwrap())
+        },
+        R::bool => {
+            E::Bool(pair.as_str().parse().unwrap())
+        },
+        R::char => {
+            E::Char(pair.as_str().chars().next().unwrap() as u8)
+        },
+        R::string => {
+            E::Str(pair.as_str().chars().map(|x|x as u8).collect())
+        },
+        R::nil => {
+            E::Nil
+        },
+        other => unreachable!("{other} is not `literal`, or it is not implemented.")
+    }
+}
+
 pub fn parse_expr(pairs: Pairs<Rule>) -> Expr {
     use Rule as R;
-    use Expr::*;
+    use Expr as E;
     PRATT_PARSER
         .map_primary(|primary| match primary.as_rule() {
             R::float => {
-                Float(primary.as_str().parse().unwrap())
+                E::Float(primary.as_str().parse().unwrap())
             },
             R::uint => {
-                Int(primary.as_str().parse().unwrap())
+                E::Int(primary.as_str().parse().unwrap())
             },
             R::int => {
-                Int(primary.as_str().parse().unwrap())
+                E::Int(primary.as_str().parse().unwrap())
             },
             R::bool => {
-                Bool(primary.as_str().parse().unwrap())
+                E::Bool(primary.as_str().parse().unwrap())
             },
             R::char => {
-                Char(primary.as_str().chars().next().unwrap() as u8)
+                E::Char(primary.as_str().chars().next().unwrap() as u8)
             },
             R::string => {
-                Str(primary.as_str().chars().map(|x|x as u8).collect())
+                E::Str(primary.as_str().chars().map(|x|x as u8).collect())
             },
             R::nil => {
-                Nil
+                E::Nil
             },
-            R::call => {
+            R::ident => {
+                E::Ident(primary.as_str().to_string())
+            }
+            R::linear_expr => {
                 let mut i = primary.into_inner();
-                Call(
-                    i.next().unwrap().as_str().to_string(), 
-                    i.map(|x|parse_expr(x.into_inner())).collect()
-                )
-            },
-            R::pathident => {
-                Pathident(primary.as_str().to_string())
-            },
+                let first = i.next().unwrap();
+                let mut expr = match first.as_rule(){
+                    R::expr => parse_expr(first.into_inner()),
+                    R::ident => E::Ident(first.as_str().to_string()),
+
+                    // TODO: this, the statement hereunder, is not enforced correctly...
+                    // at this point, 'other' should ONLY be literal
+                    other => {
+                        parse_literal(first)
+                    }
+                }; 
+                while let Some(pair) = i.next(){
+                    expr = match pair.as_rule(){
+                        R::dot_arg => E::Pathident(Box::new(expr), pair.into_inner().next().unwrap().as_str().to_string()),
+                        R::square_brackets_args => todo!("square bracket args (e.g.: this[thing]) is not yet implemented"),
+                        R::round_brackets_args => {
+                            let j = pair.into_inner();
+                            E::RoundArgs(Box::new(expr), j.map(|x|parse_expr(x.into_inner())).collect())
+                        },
+
+                        other => unimplemented!("{other} is incorrect in this stage: parsing linear expression after the first element")
+                    }
+                }
+                return expr;
+                
+            }
             R::expr => {
                 parse_expr(primary.into_inner())
             },
             case => unreachable!("case is {case}")
         })
         .map_prefix(|op, rhs| match op.as_rule() {
-            R::neg => {Neg(Box::new(rhs))}
-            R::not => {Not(Box::new(rhs))}
+            R::neg => {E::Neg(Box::new(rhs))}
+            R::not => {E::Not(Box::new(rhs))}
             _ => unreachable!()
         })
         // .map_postfix(|lhs, op| match op.as_rule() {
         //     _          => unreachable!(),
         // })
         .map_infix(|lhs, op, rhs| match op.as_rule() {
-            R::equ => Equ(Box::new((lhs,rhs))),
-            R::neq => Neq(Box::new((lhs,rhs))),
-            R::gt =>  Gt(Box::new((lhs,rhs))),
-            R::lt =>  Lt(Box::new((lhs,rhs))),
-            R::ge =>  Ge(Box::new((lhs,rhs))),
-            R::le =>  Le(Box::new((lhs,rhs))),
-            R::add => Add(Box::new((lhs,rhs))),
-            R::sub => Sub(Box::new((lhs,rhs))),
-            R::mul => Mul(Box::new((lhs,rhs))),
-            R::div => Div(Box::new((lhs,rhs))),
-            R::idv => Idv(Box::new((lhs,rhs))),
-            R::mdl => Mod(Box::new((lhs,rhs))),
-            R::pow => Pow(Box::new((lhs,rhs))),
-            R::lor => Lor(Box::new((lhs,rhs))),
-            R::land => Land(Box::new((lhs,rhs))),
+            R::equ => E::Equ(Box::new((lhs,rhs))),
+            R::neq => E::Neq(Box::new((lhs,rhs))),
+            R::gt =>  E::Gt(Box::new((lhs,rhs))),
+            R::lt =>  E::Lt(Box::new((lhs,rhs))),
+            R::ge =>  E::Ge(Box::new((lhs,rhs))),
+            R::le =>  E::Le(Box::new((lhs,rhs))),
+            R::add => E::Add(Box::new((lhs,rhs))),
+            R::sub => E::Sub(Box::new((lhs,rhs))),
+            R::mul => E::Mul(Box::new((lhs,rhs))),
+            R::div => E::Div(Box::new((lhs,rhs))),
+            R::idv => E::Idv(Box::new((lhs,rhs))),
+            R::mdl => E::Mod(Box::new((lhs,rhs))),
+            R::pow => E::Pow(Box::new((lhs,rhs))),
+            R::lor => E::Lor(Box::new((lhs,rhs))),
+            R::land => E::Land(Box::new((lhs,rhs))),
             _          => unreachable!(),
         })
         .parse(pairs)

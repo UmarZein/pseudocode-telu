@@ -1,27 +1,29 @@
-function random() -> integer
+function P1(n: integer) -> integer
 kamus 
-    i,j,n: integer 
+    t,k: integer
 algoritma 
-    i<-0
-    j<-0
-    n<-1
-    while i<4 do 
-        j <- j + rand()*n
-        n <- n*32768
-        i<-i+1 
-    endwhile
-    return j
+    t<-0 
+    k<-1 
+    while k<=n do 
+        t <- t + 2*k-1
+        k <- k + 1
+    endwhile 
+    return t
 endfunction
 
-program primes
-kamus
-    i: integer
+function P2(n: integer) -> integer 
 algoritma 
-    srand(time(0))
-    i<-100
-    while i>0 do 
-        output(random())
-        
-    endwhile
+    return n*n 
+endfunction
+
+program tugas_keamanan_data
+kamus
+    n, result: integer
+algoritma 
+    input(n)
+
+    result <- P2(n)
+
+    output(result)
     return 1
 endprogram
