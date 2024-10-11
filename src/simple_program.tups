@@ -18,12 +18,12 @@ endfunction
 
 program tugas_keamanan_data
 kamus
-    n, result: integer
+    n, p1_n, p2_n: integer
 algoritma 
-    input(n)
+    n<-100
+    p1_n <- P1(n)
+    p2_n <- P2(n)
 
-    result <- P2(n)
-
-    output(result)
+    output(p1_n,p2_n)
     return 1
 endprogram

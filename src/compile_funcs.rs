@@ -24,7 +24,7 @@ use std::collections::{HashMap, VecDeque};
 use std::hint::unreachable_unchecked;
 
 use crate::parse::{PRATT_PARSER, FCParser, Rule, parse_expr, Expr, simple_expr_str};
-use crate::{print_pair, print_pairs, ImplementationLevel};
+use crate::{print_pair, print_pairs};
 use super::{Type, Codegen};
 
 
@@ -34,10 +34,11 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
         //self.functions.insert(name, f);    
         return f;
     }
+    
     pub(crate) fn find_function(&self, name: &str, linkage: Option<Linkage>, itype: &[Type]) -> (FunctionValue<'ctx>,Type,Vec<(bool,bool,String,Type)>){
         info!("trying to find function {name} with {} argtypes",itype.len());
         info!("argtypes: {itype:#?}");
-        let mut funcs = self.functions.get(&(name.to_string(), linkage)).unwrap_or_else(||panic!("{name} not found!")).clone();
+        let mut funcs = self.functions.get(name).unwrap_or_else(||panic!("{name} not found!")).clone();
         funcs.sort_by(|a, b|{
             b.0.get_params().len().cmp(&a.0.get_params().len())
         });
@@ -70,7 +71,7 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
         func.clone()
     }
     #[inline]
-    pub(crate) fn pair_to_type(context: &'ctx Context, struct_defs: &HashMap<(String, ImplementationLevel), (StructType<'ctx>, Vec<(String,Type)>)>, pair: Pair<Rule>) -> Type{
+    pub(crate) fn pair_to_type(context: &'ctx Context, struct_defs: &HashMap<String, (StructType<'ctx>, Vec<(String,Type)>)>, pair: Pair<Rule>) -> Type{
         match pair.as_rule(){
             Rule::integer_type => Type::Int,
             Rule::real_type => Type::Float,
@@ -89,8 +90,8 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
             Rule::pointer_type => Type::Ptr(Box::new(Self::pair_to_type(context, struct_defs, pair.into_inner().next().unwrap()))),
             Rule::user_type => {
                 let struct_name = pair.as_str().to_string();
-                let (stype, fields) = struct_defs.get(&(struct_name.clone(), ImplementationLevel::Usermade)).unwrap();
-                Type::StructType(ImplementationLevel::Usermade, struct_name, fields.clone())
+                let (stype, fields) = struct_defs.get(&struct_name).unwrap();
+                Type::StructType(struct_name, fields.clone())
             },
             
             _ => unreachable!("pair = {pair:#?}")
@@ -130,7 +131,7 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
         let _ = parsed.map(|p|self.compile_pest_output(p)).collect::<Vec<()>>();
     }
     
-    fn process_parameter(context: &'ctx Context, struct_defs: &HashMap<(String, ImplementationLevel), (StructType<'ctx>, Vec<(String,Type)>)>, pair:Pair<Rule>)->(bool,bool,Vec<String>,Type){
+    fn process_parameter(context: &'ctx Context, struct_defs: &HashMap<String, (StructType<'ctx>, Vec<(String,Type)>)>, pair:Pair<Rule>)->(bool,bool,Vec<String>,Type){
         if pair.as_rule()!=Rule::parameter{
             unreachable!()
         }
@@ -312,7 +313,7 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                 }
                 v.reverse();
                 let st_typ=self.context.struct_type(&v.iter().map(|(name,typ)|typ.into_bte(self.context, self.struct_defs)).collect::<Vec<_>>(), false);
-                self.struct_defs.insert((struct_name, ImplementationLevel::Usermade), (st_typ, v.clone()));
+                self.struct_defs.insert(struct_name, (st_typ, v.clone()));
             }
             _ => return // to many cases just catch em all
         }
@@ -372,8 +373,8 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                 ).compile(self.context, self.struct_defs).into_function_type(), 
             linkage,
         );
-        match self.functions.get_mut(&(name.clone().to_string(), linkage)){
-            None => {self.functions.insert((name.to_string(), linkage), vec![(func.clone(),otype,itype)]);},
+        match self.functions.get_mut(name){
+            None => {self.functions.insert(name.to_string(), vec![(func.clone(),otype,itype)]);},
             Some(x) => x.push((func.clone(),otype.clone(),itype))
         };
         func

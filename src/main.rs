@@ -41,20 +41,12 @@ pub struct Codegen<'a, 'ctx> {
     pub module: &'a Module<'ctx>,
     pub builder: &'a Builder<'ctx>,
     // TODO: add bool: is_builtin to function's HasMap's key signature
-    pub functions: &'a mut HashMap<(String, Option<Linkage>), Vec<(FunctionValue<'ctx>, Type, Vec<(bool,bool,String,Type)>)>>,
+    pub functions: &'a mut HashMap<String, Vec<(FunctionValue<'ctx>, Type, Vec<(bool,bool,String,Type)>)>>,
     // (FunctionScope, varIdent) -> (Ptr, varTyp) # returns the variable under the function scope
     pub locals: &'a mut HashMap<(FunctionValue<'ctx>,String), (PointerValue<'ctx>,Type)>,
     // (StructName, Builtin) -> (Struct, Fields: <Name, FieldTyp>) 
-    pub struct_defs: &'a mut HashMap<(String, ImplementationLevel), (StructType<'ctx>, Vec<(String,Type)>)>,
+    pub struct_defs: &'a mut HashMap<String, (StructType<'ctx>, Vec<(String,Type)>)>,
     // pub program_name: String,
-}
-
-#[derive(Debug,Clone,Copy,PartialEq,Eq,Hash)]
-pub enum ImplementationLevel{
-    Kernel, // implemented by kernel
-    Compiler, // implemented by compiler
-    Library, // implemented by non-kernel libraries
-    Usermade, // implemented by user
 }
 
 #[derive(Debug,Clone,PartialEq,Eq)]
@@ -66,7 +58,7 @@ pub enum Type{
     String,
     Void,
     VoidPtr,
-    StructType(ImplementationLevel, String, Vec<(String, Type)>),
+    StructType(String, Vec<(String, Type)>),
     FnType(Option<Linkage>, String, Box<Type>, Vec<(bool, bool, String, Type)>),
     //Tuple(Vec<Type>),
     //Enum(Vec<String>),

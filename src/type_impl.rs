@@ -25,7 +25,7 @@ use std::hint::unreachable_unchecked;
 use std::ops::Deref;
 
 use crate::parse::{PRATT_PARSER, FCParser, Rule, parse_expr, Expr, simple_expr_str};
-use crate::{print_pair, print_pairs, ImplementationLevel};
+use crate::{print_pair, print_pairs};
 use super::{Type, Codegen};
 
 impl<'ctx> Type{
@@ -75,7 +75,7 @@ impl<'ctx> Type{
     //         },
     //     }
     // }
-    pub fn into_bmte(&self, context: &'ctx Context, struct_defs: &HashMap<(String, ImplementationLevel), (StructType<'ctx>, Vec<(String,Type)>)>) -> BasicMetadataTypeEnum<'ctx>{
+    pub fn into_bmte(&self, context: &'ctx Context, struct_defs: &HashMap<String, (StructType<'ctx>, Vec<(String,Type)>)>) -> BasicMetadataTypeEnum<'ctx>{
         match self{
             Type::Int     => context.i64_type().into(),
             Type::Float   => context.f64_type().into(),
@@ -85,15 +85,15 @@ impl<'ctx> Type{
             Type::VoidPtr => context.i8_type().ptr_type(AddressSpace::default()).into(),
             Type::Array(one,s,i)  => i.as_ref().into_bte(context, struct_defs).array_type(*s).into(),
             Type::Ptr(i)  => i.as_ref().into_bte(context, struct_defs).ptr_type(AddressSpace::default()).into(),
-            Type::StructType(a, name, fields) => {
-                let (styp, vstyp) = struct_defs.get(&(name.clone(), ImplementationLevel::Usermade)).unwrap();
+            Type::StructType(name, fields) => {
+                let (styp, vstyp) = struct_defs.get(name).unwrap();
                 styp.clone().into()
             },
             Type::Void => panic!("Void type should not be turned into BasicTypeEnum"),
             Type::FnType(implementation_level, _, _, vec) => todo!(),
         }
     }
-    pub fn into_ate(&self, context: &'ctx Context, struct_defs: &HashMap<(String, ImplementationLevel), (StructType<'ctx>, Vec<(String,Type)>)>) -> AnyTypeEnum<'ctx>{
+    pub fn into_ate(&self, context: &'ctx Context, struct_defs: &HashMap<String, (StructType<'ctx>, Vec<(String,Type)>)>) -> AnyTypeEnum<'ctx>{
         match self{
             Type::Int     => context.i64_type().into(),
             Type::Float   => context.f64_type().into(),
@@ -103,15 +103,15 @@ impl<'ctx> Type{
             Type::VoidPtr => context.i8_type().ptr_type(AddressSpace::default()).into(),
             Type::Array(one,s,i)  => i.as_ref().into_bte(context, struct_defs).array_type(*s).into(),
             Type::Ptr(i)  => i.as_ref().into_bte(context, struct_defs).ptr_type(AddressSpace::default()).into(),
-            Type::StructType(a, name, fields) => {
-                let (styp, vstyp) = struct_defs.get(&(name.clone(), ImplementationLevel::Usermade)).unwrap();
+            Type::StructType(name, fields) => {
+                let (styp, vstyp) = struct_defs.get(name).unwrap();
                 styp.clone().into()
             },
             Type::Void => context.void_type().into(),
             Type::FnType(implementation_level, _, _, vec) => todo!(),
         }
     }
-    pub fn into_bte(&self, context: &'ctx Context, struct_defs: &HashMap<(String, ImplementationLevel), (StructType<'ctx>, Vec<(String,Type)>)>) -> BasicTypeEnum<'ctx>{
+    pub fn into_bte(&self, context: &'ctx Context, struct_defs: &HashMap<String, (StructType<'ctx>, Vec<(String,Type)>)>) -> BasicTypeEnum<'ctx>{
         match self{
             Type::Int     => context.i64_type().as_basic_type_enum(),
             Type::Float   => context.f64_type().as_basic_type_enum(),
@@ -121,8 +121,8 @@ impl<'ctx> Type{
             Type::VoidPtr => context.i8_type().ptr_type(AddressSpace::default()).as_basic_type_enum(),
             Type::Array(one,s,i)  => i.as_ref().into_bte(context, struct_defs).array_type(*s).as_basic_type_enum(),
             Type::Ptr(i)  => i.as_ref().into_bte(context, struct_defs).ptr_type(AddressSpace::default()).as_basic_type_enum(),
-            Type::StructType(a, name, fields) => {
-                let (styp, vstyp) = struct_defs.get(&(name.clone(), ImplementationLevel::Usermade)).unwrap();
+            Type::StructType(name, fields) => {
+                let (styp, vstyp) = struct_defs.get(name).unwrap();
                 styp.as_basic_type_enum()
             },
             Type::Void => panic!("Void type should not be turned into BasicTypeEnum"),
@@ -146,7 +146,7 @@ impl<'ctx> Type{
     }
     pub fn compile(&self,
         context: &'ctx Context,
-        struct_defs: &HashMap<(String, ImplementationLevel), (StructType<'ctx>, Vec<(String,Type)>)>,
+        struct_defs: &HashMap<String, (StructType<'ctx>, Vec<(String,Type)>)>,
 
     ) -> AnyTypeEnum<'ctx>{
         match self{
@@ -158,8 +158,8 @@ impl<'ctx> Type{
             Type::VoidPtr => context.i8_type().ptr_type(AddressSpace::default()).into(),
             Type::Array(one,s,i)  => i.as_ref().into_bte(context, struct_defs).array_type(*s).into(),
             Type::Ptr(i)  => i.as_ref().into_bte(context, struct_defs).ptr_type(AddressSpace::default()).into(),
-            Type::StructType(a, name, fields) => { 
-                let (styp, vstyp) = struct_defs.get(&(name.clone(), ImplementationLevel::Usermade)).unwrap();
+            Type::StructType(name, fields) => { 
+                let (styp, vstyp) = struct_defs.get(name).unwrap();
                 styp.clone().into()
             },
             Type::Void => context.void_type().into(),
@@ -168,7 +168,7 @@ impl<'ctx> Type{
             },
         }
     }
-    fn compile_fn(context: &'ctx Context, struct_defs: &HashMap<(String, ImplementationLevel), (StructType<'ctx>, Vec<(String,Type)>)>, out_type: Type, itype: &[Type], is_var_args: bool) -> FunctionType<'ctx>{
+    fn compile_fn(context: &'ctx Context, struct_defs: &HashMap<String, (StructType<'ctx>, Vec<(String,Type)>)>, out_type: Type, itype: &[Type], is_var_args: bool) -> FunctionType<'ctx>{
         let itype = itype.iter().map(|x|x.into_bte(context, struct_defs).into()).collect::<Vec<_>>();
         match out_type{
             Type::Int     => context.i64_type().fn_type(&itype, is_var_args),
@@ -179,8 +179,8 @@ impl<'ctx> Type{
             Type::VoidPtr => context.i8_type().ptr_type(AddressSpace::default()).fn_type(&itype, is_var_args),
             Type::Array(one,s,i)  => todo!(),//i.as_ref().into_bte(context, struct_defs).array_type(*s).fn_type(&itype, is_var_args),
             Type::Ptr(i)  => i.as_ref().into_bte(context, struct_defs).ptr_type(AddressSpace::default()).fn_type(&itype, is_var_args),
-            Type::StructType(a, name, fields) => { 
-                let (styp, vstyp) = struct_defs.get(&(name.clone(), ImplementationLevel::Usermade)).unwrap();
+            Type::StructType(name, fields) => { 
+                let (styp, vstyp) = struct_defs.get(&name).unwrap();
                 styp.fn_type(&itype, is_var_args)
             },
             Type::Void => context.void_type().fn_type(&itype, is_var_args),
