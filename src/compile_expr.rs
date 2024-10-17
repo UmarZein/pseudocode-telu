@@ -74,7 +74,12 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
             E::Neg(be) => Self::raw_expr_type(context, locals, functions, struct_defs, cur_func, be.as_ref()),
             E::Pathident(be, arg) => {
                 let left_side_type = Self::raw_expr_type(context, locals, functions, struct_defs, cur_func, be.deref());
+                // Pathident must be {struct}.{member} right?
                 match left_side_type{
+                    Type::OpaqueType(name) => {
+                        let (styp, fields) =struct_defs.get(&name).unwrap().clone();
+                        return fields.iter().find(|(s,typ)|s==arg).unwrap().1.clone()
+                    }
                     Type::StructType(name, fields) => {
                         return fields.iter().find(|(s,typ)|s==arg).unwrap().1.clone()
                     },
@@ -342,13 +347,13 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                 let b = b.expect("void operand");
                 Some(match (typea.clone(),typeb.clone()){
                     (Type::Ptr(i),Type::Int)  => {
-                        let t = i.as_ref().into_bte(self.context, self.struct_defs).into_pointer_type();
+                        let t = i.as_ref().into_bte(self.context, self.aliases, self.struct_defs).into_pointer_type();
                         let aaddr = self.builder.build_ptr_to_int(a.into_pointer_value(), self.context.i64_type(), "ptrtoint").unwrap();
                         let res = self.builder.build_int_add(aaddr, b.into_int_value(), "intadd").unwrap();
                         self.builder.build_int_to_ptr(res, t, "inttoptr").unwrap().into()
                     },
                     (Type::Int,Type::Ptr(i)) => {
-                        let t = i.as_ref().into_bte(self.context, self.struct_defs).into_pointer_type();
+                        let t = i.as_ref().into_bte(self.context, self.aliases, self.struct_defs).into_pointer_type();
                         let baddr = self.builder.build_ptr_to_int(b.into_pointer_value(), self.context.i64_type(), "ptrtoint").unwrap();
                         let res = self.builder.build_int_add(a.into_int_value(), baddr, "intadd").unwrap();
                         self.builder.build_int_to_ptr(res, t, "inttoptr").unwrap().into()
@@ -368,13 +373,13 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                 let b = b.expect("void operand");
                 Some(match (typea,typeb){
                     (Type::Ptr(i),Type::Int)  => {
-                        let t = i.as_ref().into_bte(self.context, self.struct_defs).into_pointer_type();
+                        let t = i.as_ref().into_bte(self.context, self.aliases, self.struct_defs).into_pointer_type();
                         let aaddr = self.builder.build_ptr_to_int(a.into_pointer_value(), self.context.i64_type(), "ptrtoint").unwrap();
                         let res = self.builder.build_int_sub(aaddr, b.into_int_value(), "intsub").unwrap();
                         self.builder.build_int_to_ptr(res, t, "inttoptr").unwrap().into()
                     },
                     (Type::Int,Type::Ptr(i)) => {
-                        let t = i.as_ref().into_bte(self.context, self.struct_defs).into_pointer_type();
+                        let t = i.as_ref().into_bte(self.context, self.aliases, self.struct_defs).into_pointer_type();
                         let baddr = self.builder.build_ptr_to_int(b.into_pointer_value(), self.context.i64_type(), "ptrtoint").unwrap();
                         let res = self.builder.build_int_sub(a.into_int_value(), baddr, "intsub").unwrap();
                         self.builder.build_int_to_ptr(res, t, "inttoptr").unwrap().into()
@@ -531,10 +536,11 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                 if let Type::Void = typ{
                     return None
                 }
-                let btetyp = typ.into_bte(self.context, self.struct_defs);
+                let btetyp = typ.into_bte(self.context, self.aliases, self.struct_defs);
                 let x = (match typ.clone(){
                     Type::Void => todo!(),
                     Type::VoidPtr => todo!(),
+                    Type::OpaqueType(name) => todo!(),
                     Type::StructType(name, fields) => self.builder.build_load(btetyp.into_struct_type(), ptr, "loadstructpath").unwrap(),
                     Type::Int => self.builder.build_load(btetyp.into_int_type(), ptr, "loadintpath").unwrap(),
                     Type::Float => self.builder.build_load(btetyp.into_float_type(), ptr, "loadfloatpath").unwrap(),
@@ -667,7 +673,7 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                     let (index, mtype)= named_fields.iter().fold_while((0, self.context.i8_type().as_basic_type_enum()), |(idx, mtype), (field_name, field_type)|{
                             use itertools::FoldWhile::{Done, Continue};
                             if (field_name==&arg){
-                                Done((idx, field_type.into_bte(self.context, self.struct_defs)))
+                                Done((idx, field_type.into_bte(self.context, self.aliases, self.struct_defs)))
                             } else {
                                 Continue((idx+1, mtype))
                             }

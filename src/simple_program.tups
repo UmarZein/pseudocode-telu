@@ -1,29 +1,22 @@
-function P1(n: integer) -> integer
-kamus 
-    t,k: integer
-algoritma 
-    t<-0 
-    k<-1 
-    while k<=n do 
-        t <- t + 2*k-1
-        k <- k + 1
-    endwhile 
-    return t
-endfunction
+type cat: car
+type car: integer
 
-function P2(n: integer) -> integer 
-algoritma 
-    return n*n 
-endfunction
+type yeah: <
+    member1: cat,
+    member2: pointer to yeah,
+    member3: car
+>
 
 program tugas_keamanan_data
 kamus
-    n, p1_n, p2_n: integer
+    kucing: cat
+    koko: car
+    yogi: yeah
 algoritma 
-    n<-100
-    p1_n <- P1(n)
-    p2_n <- P2(n)
-
-    output(p1_n,p2_n)
+    kucing <- 100
+    koko <- kucing*100 -1
+    yogi.member1 <- koko-kucing
+    yogi.member3 <- yogi.member1*2
+    output(kucing, koko, yogi.member1, yogi.member3)
     return 1
 endprogram

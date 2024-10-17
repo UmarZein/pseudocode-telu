@@ -258,7 +258,6 @@ where
                     self.builder.build_return(None);
                 }
             }
-            R::typealias => todo!(),
             R::procedure_def => {
                 let mut i = pair.into_inner();
                 let name = i.next().unwrap().as_str(); //
@@ -320,17 +319,19 @@ where
                 let program_name = i.next().unwrap().as_str().to_string();
                 let _ = i.map(|p| self.compile_pest_output(p)).collect::<Vec<()>>();
             }
-            R::konstanta | R::kamus => return,
+            R::konstanta | R::kamus | R::type_def => return,
             R::algoritma | R::stmt0 | R::stmt1 => {
                 let _ = pair
                     .into_inner()
                     .map(|p| self.compile_pest_output(p))
                     .collect::<Vec<()>>();
             }
-            R::type_def => {
-                return //wot!?
+            R::typealias => {
+                let mut i = pair.into_inner();
+                let name = i.next().unwrap().as_str(); //
+                let typ = i.next().unwrap().as_str(); //
             }
-            _ => unreachable!("reached rule {}", pair.as_rule().to_string()),
+            other => unreachable!("reached rule {other}"),
         }
     }
 }

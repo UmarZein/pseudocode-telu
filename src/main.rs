@@ -3,8 +3,6 @@
 // TODO: 
 //  - reserve keywords: template, macro,
 //  - implement all primitives: u8,i8,u16,i16,u32,i32,u64,i64,f32,f64,char,boolean,usize,isize
-//  - function wrapper: Function(name, builtin, etc. etc.)
-//  - struct wrapper: Struct(name, fields)
 //  - fix boolean type name from bool to boolean
 use log::{debug, error, log_enabled, info, Level};
 
@@ -28,10 +26,12 @@ use std::process::{Command, Output, exit};
 
 use crate::parse::{parse_expr, PRATT_PARSER};
 mod parse;
+mod compile_alias;
 mod compile_funcs;
 mod type_impl;
 mod compile_pest;
 mod compile_expr;
+mod compile_types;
 use inkwell::module::{Module};
 use inkwell::types::StructType;
 
@@ -40,7 +40,7 @@ pub struct Codegen<'a, 'ctx> {
     pub context: &'ctx Context,
     pub module: &'a Module<'ctx>,
     pub builder: &'a Builder<'ctx>,
-    // TODO: add bool: is_builtin to function's HasMap's key signature
+    pub aliases: &'a mut HashMap<String, Type>, // TODO: dunno how to do type aliasing
     pub functions: &'a mut HashMap<String, Vec<(FunctionValue<'ctx>, Type, Vec<(bool,bool,String,Type)>)>>,
     // (FunctionScope, varIdent) -> (Ptr, varTyp) # returns the variable under the function scope
     pub locals: &'a mut HashMap<(FunctionValue<'ctx>,String), (PointerValue<'ctx>,Type)>,
@@ -59,6 +59,7 @@ pub enum Type{
     Void,
     VoidPtr,
     StructType(String, Vec<(String, Type)>),
+    OpaqueType(String),
     FnType(Option<Linkage>, String, Box<Type>, Vec<(bool, bool, String, Type)>),
     //Tuple(Vec<Type>),
     //Enum(Vec<String>),
@@ -129,6 +130,7 @@ fn main() {
         context: &context,
         module: &module,
         builder: &builder,
+        aliases: &mut HashMap::new(),
         functions: &mut HashMap::new(),
         locals: &mut HashMap::new(),    
         struct_defs: &mut HashMap::new(),
@@ -154,6 +156,7 @@ fn main() {
 // const EXPR_EX: &str = include_str!("expr_ex.txt");
 
 fn get_clang(ofile: &str, name: &str) -> Result<String, String> {
+    let x = &123;
     // Try running clang-17
     if let Ok(output) = Command::new("clang-17").arg("--version").output() {
         if output.status.success() {
