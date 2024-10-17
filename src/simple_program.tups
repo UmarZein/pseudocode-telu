@@ -1,29 +1,35 @@
-function P1(n: integer) -> integer
+function isPrime(n: integer) -> bool
 kamus 
-    t,k: integer
+    i: integer 
 algoritma 
-    t<-0 
-    k<-1 
-    while k<=n do 
-        t <- t + 2*k-1
-        k <- k + 1
-    endwhile 
-    return t
-endfunction
-
-function P2(n: integer) -> integer 
-algoritma 
-    return n*n 
+    i <- 2
+    while (i*i-1<n)do 
+        if (n mod i) == 0 then 
+            return false 
+        endif
+        i <- i+1 
+    endwhile
+    return n>1
 endfunction
 
 program tugas_keamanan_data
 kamus
-    n, result: integer
+    i, x, ncalls: integer
+    start_time: integer
+    divisor: integer 
 algoritma 
-    input(n)
-
-    result <- P2(n)
-
-    output(result)
+    ncalls <- 0
+    divisor <- 1000
+    input(x)
+    start_time <- time(0)
+    while time(0)-start_time<=10 do 
+        i<-0
+        while i<divisor do 
+            i <- i+1 
+            isPrime(x)
+            ncalls <- ncalls + 1
+        endwhile 
+    endwhile
+    output("ncalls:",ncalls)
     return 1
 endprogram

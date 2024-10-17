@@ -26,7 +26,7 @@ use std::hint::unreachable_unchecked;
 use std::ops::Deref;
 
 use crate::parse::{PRATT_PARSER, FCParser, Rule, parse_expr, Expr, simple_expr_str};
-use crate::{print_pair, print_pairs, ImplementationLevel};
+use crate::{print_pair, print_pairs};
 
 impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
     fn compile_bexpr(&self, bexpr: &Box<Expr>) -> (Option<BasicValueEnum<'ctx>>, Type){
@@ -47,8 +47,8 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
     pub(crate) fn raw_expr_type(
         context: &'ctx Context, 
         locals: &HashMap<(FunctionValue<'ctx>,String), (PointerValue<'ctx>,Type)>, 
-        functions: &HashMap<(String, Option<Linkage>), Vec<(FunctionValue<'ctx>, Type, Vec<(bool,bool,String,Type)>)>>,
-        struct_defs: &HashMap<(String, ImplementationLevel), (StructType<'ctx>, Vec<(String,Type)>)>,
+        functions: &HashMap<String, Vec<(FunctionValue<'ctx>, Type, Vec<(bool,bool,String,Type)>)>>,
+        struct_defs: &HashMap<String, (StructType<'ctx>, Vec<(String,Type)>)>,
         cur_func: &FunctionValue<'ctx>,
         expr: &Expr
     ) -> Type {
@@ -74,8 +74,13 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
             E::Neg(be) => Self::raw_expr_type(context, locals, functions, struct_defs, cur_func, be.as_ref()),
             E::Pathident(be, arg) => {
                 let left_side_type = Self::raw_expr_type(context, locals, functions, struct_defs, cur_func, be.deref());
+                // Pathident must be {struct}.{member} right?
                 match left_side_type{
-                    Type::StructType(impl_level, name, fields) => {
+                    Type::OpaqueType(name) => {
+                        let (styp, fields) =struct_defs.get(&name).unwrap().clone();
+                        return fields.iter().find(|(s,typ)|s==arg).unwrap().1.clone()
+                    }
+                    Type::StructType(name, fields) => {
                         return fields.iter().find(|(s,typ)|s==arg).unwrap().1.clone()
                     },
                     other => unimplemented!("member access must be of a struct")
@@ -94,7 +99,7 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
 
                     
                    if let Type::Ptr(be) = inner_type{
-                        if let Type::StructType(impl_level, name, fields) = be.deref().clone(){
+                        if let Type::StructType(name, fields) = be.deref().clone(){
                             if let E::Ident(memberName) = s.deref(){
                                 return fields
                                     .iter()
@@ -117,14 +122,14 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                 // else if s is ident...
                 // this code is beautifully ugly
                 if let E::Ident(ident) = s.deref() {
-                    functions.get(&(ident.clone(), None)).or(functions.get(&(ident.clone(), Some(Linkage::External)))).unwrap().iter()
+                    functions.get(&ident.clone()).unwrap().iter()
                         .find(|&(e,t,v)|{
                             let fargtypes = v.iter()
                                 .map(|x|x.3.clone())
                                 .collect::<Vec<_>>();
                             fargtypes == argtypes
                         }
-                        ).unwrap().1.clone()
+                        ).expect(&format!("could not find function-implementation. identifier: {ident}")).1.clone()
                 } else {
                     todo!("only named, non-closure, functions are currently supported")
                 }
@@ -152,8 +157,8 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                 if let Expr::Ident(memberName) = be.deref().clone(){
                     if ve.len()==1{
                         if let Type::Ptr(p) = self.expr_type(&ve[0]){
-                            if let Type::StructType(impl_level, name, named_fields) = p.deref().clone(){
-                                let (styp, _) = self.struct_defs.get(&(name.clone(), impl_level)).unwrap();
+                            if let Type::StructType(name, named_fields) = p.deref().clone(){
+                                let (styp, _) = self.struct_defs.get(&name).unwrap();
                                 (ptr, typ) = self.compile_lvalue_expr(ve[0].clone(), func);
                                 let index= named_fields.iter().fold_while(0, |a, (s, t)|{
                                         use itertools::FoldWhile::{Done, Continue};
@@ -175,8 +180,8 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
             Expr::SquareArgs(be, ve) => todo!(),
             Expr::Pathident(be, s) => {
                 (ptr, typ) = self.compile_lvalue_expr(be.deref().clone(), func);
-                let (struct_type, index, struct_name) = if let Type::StructType(impl_level, name, fields) = typ.clone(){
-                    let (styp, _) = self.struct_defs.get(&(name.clone(), impl_level)).unwrap();
+                let (struct_type, index, struct_name) = if let Type::StructType(name, fields) = typ.clone(){
+                    let (styp, _) = self.struct_defs.get(&name).unwrap();
                     let index= fields.iter().fold_while(0, |a, (field_name, field_type)|{
                             use itertools::FoldWhile::{Done, Continue};
                             info!("at index={a}, comparing {field_name} and {s}");
@@ -342,13 +347,13 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                 let b = b.expect("void operand");
                 Some(match (typea.clone(),typeb.clone()){
                     (Type::Ptr(i),Type::Int)  => {
-                        let t = i.as_ref().into_bte(self.context, self.struct_defs).into_pointer_type();
+                        let t = i.as_ref().into_bte(self.context, self.aliases, self.struct_defs).into_pointer_type();
                         let aaddr = self.builder.build_ptr_to_int(a.into_pointer_value(), self.context.i64_type(), "ptrtoint").unwrap();
                         let res = self.builder.build_int_add(aaddr, b.into_int_value(), "intadd").unwrap();
                         self.builder.build_int_to_ptr(res, t, "inttoptr").unwrap().into()
                     },
                     (Type::Int,Type::Ptr(i)) => {
-                        let t = i.as_ref().into_bte(self.context, self.struct_defs).into_pointer_type();
+                        let t = i.as_ref().into_bte(self.context, self.aliases, self.struct_defs).into_pointer_type();
                         let baddr = self.builder.build_ptr_to_int(b.into_pointer_value(), self.context.i64_type(), "ptrtoint").unwrap();
                         let res = self.builder.build_int_add(a.into_int_value(), baddr, "intadd").unwrap();
                         self.builder.build_int_to_ptr(res, t, "inttoptr").unwrap().into()
@@ -368,13 +373,13 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                 let b = b.expect("void operand");
                 Some(match (typea,typeb){
                     (Type::Ptr(i),Type::Int)  => {
-                        let t = i.as_ref().into_bte(self.context, self.struct_defs).into_pointer_type();
+                        let t = i.as_ref().into_bte(self.context, self.aliases, self.struct_defs).into_pointer_type();
                         let aaddr = self.builder.build_ptr_to_int(a.into_pointer_value(), self.context.i64_type(), "ptrtoint").unwrap();
                         let res = self.builder.build_int_sub(aaddr, b.into_int_value(), "intsub").unwrap();
                         self.builder.build_int_to_ptr(res, t, "inttoptr").unwrap().into()
                     },
                     (Type::Int,Type::Ptr(i)) => {
-                        let t = i.as_ref().into_bte(self.context, self.struct_defs).into_pointer_type();
+                        let t = i.as_ref().into_bte(self.context, self.aliases, self.struct_defs).into_pointer_type();
                         let baddr = self.builder.build_ptr_to_int(b.into_pointer_value(), self.context.i64_type(), "ptrtoint").unwrap();
                         let res = self.builder.build_int_sub(a.into_int_value(), baddr, "intsub").unwrap();
                         self.builder.build_int_to_ptr(res, t, "inttoptr").unwrap().into()
@@ -531,11 +536,12 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                 if let Type::Void = typ{
                     return None
                 }
-                let btetyp = typ.into_bte(self.context, self.struct_defs);
+                let btetyp = typ.into_bte(self.context, self.aliases, self.struct_defs);
                 let x = (match typ.clone(){
                     Type::Void => todo!(),
                     Type::VoidPtr => todo!(),
-                    Type::StructType(implementation_level, name, fields) => self.builder.build_load(btetyp.into_struct_type(), ptr, "loadstructpath").unwrap(),
+                    Type::OpaqueType(name) => todo!(),
+                    Type::StructType(name, fields) => self.builder.build_load(btetyp.into_struct_type(), ptr, "loadstructpath").unwrap(),
                     Type::Int => self.builder.build_load(btetyp.into_int_type(), ptr, "loadintpath").unwrap(),
                     Type::Float => self.builder.build_load(btetyp.into_float_type(), ptr, "loadfloatpath").unwrap(),
                     Type::Char => self.builder.build_load(btetyp.into_int_type(), ptr, "loadcharpath").unwrap(),
@@ -662,12 +668,12 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
             Expr::Nil => unimplemented!(),
             Expr::Pathident(expr, arg) => {
                 let (ptr, typ) = self.compile_lvalue_expr(expr.deref().clone(), self.builder.get_insert_block().unwrap().get_parent().unwrap());
-                let (styp, index, member_type) = if let Type::StructType(impl_level, name, named_fields) = typ{
-                    let (styp, field) = self.struct_defs.get(&(name, impl_level)).unwrap();
+                let (styp, index, member_type) = if let Type::StructType(name, named_fields) = typ{
+                    let (styp, field) = self.struct_defs.get(&name).unwrap();
                     let (index, mtype)= named_fields.iter().fold_while((0, self.context.i8_type().as_basic_type_enum()), |(idx, mtype), (field_name, field_type)|{
                             use itertools::FoldWhile::{Done, Continue};
                             if (field_name==&arg){
-                                Done((idx, field_type.into_bte(self.context, self.struct_defs)))
+                                Done((idx, field_type.into_bte(self.context, self.aliases, self.struct_defs)))
                             } else {
                                 Continue((idx+1, mtype))
                             }

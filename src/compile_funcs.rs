@@ -13,7 +13,7 @@ use inkwell::{
 
 use inkwell::builder::Builder;
 use inkwell::types::{BasicMetadataTypeEnum, FunctionType, BasicTypeEnum, BasicType, PointerType, StructType};
-use inkwell::values::{BasicMetadataValueEnum, BasicValueEnum, FloatValue, FunctionValue, StructValue, PointerValue, BasicValue, InstructionOpcode, AsValueRef, InstructionValue};
+use inkwell::values::{AnyValue, AsValueRef, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, InstructionOpcode, InstructionValue, PointerValue, StructValue};
 use inkwell::FloatPredicate;
 
 use pest::Parser;
@@ -24,7 +24,7 @@ use std::collections::{HashMap, VecDeque};
 use std::hint::unreachable_unchecked;
 
 use crate::parse::{PRATT_PARSER, FCParser, Rule, parse_expr, Expr, simple_expr_str};
-use crate::{print_pair, print_pairs, ImplementationLevel};
+use crate::{print_pair, print_pairs};
 use super::{Type, Codegen};
 
 
@@ -34,10 +34,11 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
         //self.functions.insert(name, f);    
         return f;
     }
+    
     pub(crate) fn find_function(&self, name: &str, linkage: Option<Linkage>, itype: &[Type]) -> (FunctionValue<'ctx>,Type,Vec<(bool,bool,String,Type)>){
         info!("trying to find function {name} with {} argtypes",itype.len());
         info!("argtypes: {itype:#?}");
-        let mut funcs = self.functions.get(&(name.to_string(), linkage)).unwrap_or_else(||panic!("{name} not found!")).clone();
+        let mut funcs = self.functions.get(name).unwrap_or_else(||panic!("{name} not found!")).clone();
         funcs.sort_by(|a, b|{
             b.0.get_params().len().cmp(&a.0.get_params().len())
         });
@@ -70,7 +71,9 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
         func.clone()
     }
     #[inline]
-    pub(crate) fn pair_to_type(context: &'ctx Context, struct_defs: &HashMap<(String, ImplementationLevel), (StructType<'ctx>, Vec<(String,Type)>)>, pair: Pair<Rule>) -> Type{
+    pub(crate) fn pair_to_type(context: &'ctx Context, struct_defs: &HashMap<String, (StructType<'ctx>, Vec<(String,Type)>)>,
+        aliases: &HashMap<String, Type>,
+        pair: Pair<Rule>) -> Type{
         match pair.as_rule(){
             Rule::integer_type => Type::Int,
             Rule::real_type => Type::Float,
@@ -83,14 +86,20 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                 let mut array_dim = i.next().unwrap().into_inner();
                 let one_indexed = array_dim.next().unwrap().as_str()=="1";
                 let size = array_dim.next().unwrap().as_str().parse().unwrap();
-                let inner_type = Self::pair_to_type(context, struct_defs, i.next().unwrap());
+                let inner_type = Self::pair_to_type(context, struct_defs, aliases, i.next().unwrap());
                 Type::Array(one_indexed, size, Box::new(inner_type))
             },
-            Rule::pointer_type => Type::Ptr(Box::new(Self::pair_to_type(context, struct_defs, pair.into_inner().next().unwrap()))),
+            Rule::pointer_type => Type::Ptr(Box::new(Self::pair_to_type(context, struct_defs, aliases, pair.into_inner().next().unwrap()))),
             Rule::user_type => {
                 let struct_name = pair.as_str().to_string();
-                let (stype, fields) = struct_defs.get(&(struct_name.clone(), ImplementationLevel::Usermade)).unwrap();
-                Type::StructType(ImplementationLevel::Usermade, struct_name, fields.clone())
+                if let Some((stype, fields)) = struct_defs.get(&struct_name){
+                    Type::StructType(struct_name, fields.clone())
+                } else if let Some(typ) = aliases.get(&struct_name) {
+                    typ.clone().translate_opaque(struct_defs, aliases) 
+                } else {
+                    info!("struct_defs:\n{struct_defs:#?}");
+                    panic!("{struct_name} not found in struct_defs");
+                }
             },
             
             _ => unreachable!("pair = {pair:#?}")
@@ -116,7 +125,8 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
         info!("done printing pairs");
         let main_fn = self.register_func_unnamed_params("main", Type::Int, vec![]);
         self.context.append_basic_block(main_fn, "mainf_entry");
-        //TODO uncomment this: self.add_alloc();
+        self.add_malloc();
+        //self.add_allocate();
         self.add_printf();
         self.add_scanf();
         self.add_output();
@@ -124,13 +134,22 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
         self.add_rand();
         // self.add_powi();
         // self.add_powf();
+        
+        println!("declaring aliases");
+        let _ = parsed.clone().map(|p|self.declare_aliases(p)).collect::<Vec<()>>();
+        println!("declaring structs");
+        let _ = parsed.clone().map(|p|self.declare_structs(p)).collect::<Vec<()>>();
+        println!("declaring funcs");
         let _ = parsed.clone().map(|p|self.declare_funcs(p)).collect::<Vec<()>>();
         info!("done declaring functions");
         debug!("after debugging, locals[{}]={:#?}",self.locals.len(),self.locals);
+        println!("compiling pest output");
         let _ = parsed.map(|p|self.compile_pest_output(p)).collect::<Vec<()>>();
     }
     
-    fn process_parameter(context: &'ctx Context, struct_defs: &HashMap<(String, ImplementationLevel), (StructType<'ctx>, Vec<(String,Type)>)>, pair:Pair<Rule>)->(bool,bool,Vec<String>,Type){
+    fn process_parameter(context: &'ctx Context, struct_defs: &HashMap<String, (StructType<'ctx>, Vec<(String,Type)>)>,
+        aliases: &HashMap<String, Type>,
+        pair:Pair<Rule>)->(bool,bool,Vec<String>,Type){
         if pair.as_rule()!=Rule::parameter{
             unreachable!()
         }
@@ -148,7 +167,7 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                 },
                 Rule::type_field => {
                     let mut k = x.into_inner().rev();
-                    partype = Self::pair_to_type(&context, struct_defs, k.next().unwrap());
+                    partype = Self::pair_to_type(&context, struct_defs, aliases, k.next().unwrap());
                     let var_ptrs: Vec<_> = k.map(|j|j.as_str().to_string()).collect();
                     vars.extend(var_ptrs);
                 },
@@ -161,14 +180,14 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
         //println!("declare_funcs({pair:?})");
         use Rule as R;
         match pair.as_rule(){
-            R::typealias => todo!(),
+            R::typealias => return,
             R::procedure_def => {
                 let mut i = pair.into_inner();
                 let name = i.next().unwrap().as_str();//
                 let mut intype_blueprint: Vec<(bool,bool,String,Type)> = vec![];
                 let mut outtype = Type::Int;
                 let parameters: Vec<_> = i.clone().filter(|x|x.as_rule()==R::parameter)
-                    .map(|x|Self::process_parameter(&self.context,self.struct_defs,x)).collect();
+                    .map(|x|Self::process_parameter(&self.context,self.struct_defs, self.aliases,x)).collect();
                 for (inv,outv, vars, typ) in &parameters{
                     for var in vars{
                         intype_blueprint.push((*inv,*outv,var.clone(),typ.clone()));
@@ -189,7 +208,7 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                     else{
                         for var in vars.iter().rev(){
                             let p = func.get_nth_param(parami).unwrap();
-                            let ptr = self.builder.build_alloca(typ.into_bte(self.context, self.struct_defs), &var).unwrap();
+                            let ptr = self.builder.build_alloca(typ.into_bte(self.context, self.aliases, self.struct_defs), &var).unwrap();
                             self.locals.insert((func,var.clone()), (ptr,typ.clone()));
                             let load_instr = self.builder.build_store(ptr, p).unwrap();
                             //load_instr.set_alignment(typ.correct_alignment()).unwrap();
@@ -214,7 +233,7 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                 let mut intypes: Vec<Type> = vec![];
                 let mut outtype = self.context.i8_type().as_basic_type_enum();
                 let parameters: Vec<_> = i.clone().filter(|x|x.as_rule()==R::parameter)
-                    .map(|x|Self::process_parameter(&self.context,self.struct_defs,x)).collect();
+                    .map(|x|Self::process_parameter(&self.context,self.struct_defs, self.aliases,x)).collect();
                 for (inv,outv, vars, typ) in parameters.clone(){
                     for var in vars{
                         intype_blueprint.push((var.clone(),typ.clone()));
@@ -230,7 +249,7 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                         _ => false
                     }
                 }).unwrap();
-                let outtyp = Self::pair_to_type(self.context,self.struct_defs, typename);
+                let outtyp = Self::pair_to_type(self.context,self.struct_defs, self.aliases, typename);
                 let func = self.register_func(name, outtyp, intype_blueprint);
                 //
                 let funcblock = self.context.append_basic_block(func, "entry");
@@ -239,7 +258,7 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                 for (inv,outv, vars, typ) in parameters.iter(){
                     for var in vars.iter().rev(){
                         let p = func.get_nth_param(parami).unwrap();
-                        let ptr = self.builder.build_alloca(typ.into_bte(self.context, self.struct_defs), &var).unwrap();
+                        let ptr = self.builder.build_alloca(typ.into_bte(self.context, self.aliases, self.struct_defs), &var).unwrap();
                         self.locals.insert((func,var.clone()), (ptr,typ.clone()));
                         let load_instr = self.builder.build_store(ptr, p).unwrap();
                         //load_instr.set_alignment(typ.correct_alignment()).unwrap();
@@ -270,10 +289,10 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                     let ident = k.next().unwrap().as_str();
                     let module = self.module;
                     let context = self.context;
-                    let ty = Self::pair_to_type(&context, self.struct_defs, k.next().unwrap());
+                    let ty = Self::pair_to_type(&context, self.struct_defs, self.aliases, k.next().unwrap());
                     //let ftype = ty.fn_type(&[], false);
                     //let func = module.add_function("name", ftype, None);
-                    let var_ptr = self.builder.build_alloca(ty.into_bte(self.context, self.struct_defs), ident).unwrap();
+                    let var_ptr = self.builder.build_alloca(ty.into_bte(self.context, self.aliases, self.struct_defs), ident).unwrap();
                     let func = self.builder.get_insert_block().unwrap().get_parent().unwrap();
                     let val = k.next().unwrap();
                     self.locals.insert((func,ident.clone().to_string()), (var_ptr.clone(),ty.clone()));
@@ -287,11 +306,11 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                 for type_decl in j{
                     let mut k = type_decl.into_inner().rev();
                     let context = self.context;
-                    let ty = Self::pair_to_type(&context, self.struct_defs, k.next().unwrap());
+                    let ty = Self::pair_to_type(&context, self.struct_defs, self.aliases, k.next().unwrap());
                     let var_ptrs: Vec<_> = k.map(|x|{
                         let name = x.as_str();
                         println!("kamus for {name}");
-                        let var_ptr = self.builder.build_alloca(ty.into_bte(self.context, self.struct_defs), x.as_str()).unwrap();
+                        let var_ptr = self.builder.build_alloca(ty.into_bte(self.context, self.aliases, self.struct_defs), x.as_str()).unwrap();
                         self.locals.insert((func,name.clone().to_string()), (var_ptr.clone(),ty.clone()));
                     }).collect();
                 }
@@ -304,15 +323,15 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                 for type_field in j.rev(){
                     let mut k = type_field.into_inner().rev();
                     let context = self.context;
-                    let ty = Self::pair_to_type(&context, self.struct_defs, k.next().unwrap());
+                    let ty = Self::pair_to_type(&context, self.struct_defs, self.aliases, k.next().unwrap());
                     let var_ptrs: Vec<_> = k.map(|x|{
                         let name = x.as_str();
                         v.push((name.to_string(), ty.clone()));
                     }).collect();
                 }
                 v.reverse();
-                let st_typ=self.context.struct_type(&v.iter().map(|(name,typ)|typ.into_bte(self.context, self.struct_defs)).collect::<Vec<_>>(), false);
-                self.struct_defs.insert((struct_name, ImplementationLevel::Usermade), (st_typ, v.clone()));
+                let st_typ=self.context.struct_type(&v.iter().map(|(name,typ)|typ.into_bte(self.context, self.aliases, self.struct_defs)).collect::<Vec<_>>(), false);
+                self.struct_defs.insert(struct_name, (st_typ, v.clone()));
             }
             _ => return // to many cases just catch em all
         }
@@ -369,18 +388,44 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
                     //})
                     //.collect::<Vec<_>>()
                     ,
-                ).compile(self.context, self.struct_defs).into_function_type(), 
+                ).compile(self.context, self.aliases, self.struct_defs).into_function_type(), 
             linkage,
         );
-        match self.functions.get_mut(&(name.clone().to_string(), linkage)){
-            None => {self.functions.insert((name.to_string(), linkage), vec![(func.clone(),otype,itype)]);},
+        match self.functions.get_mut(name){
+            None => {self.functions.insert(name.to_string(), vec![(func.clone(),otype,itype)]);},
             Some(x) => x.push((func.clone(),otype.clone(),itype))
         };
         func
     }
-    pub fn add_alloc(&mut self){
-        // malloc
+    pub fn add_malloc(&mut self){
         self.register_extern_func("malloc", Type::VoidPtr, vec![Type::Int]);
+    }
+    /// TODO: add_allocate is dependent on add_malloc. Dunno how to enforce this. Phantom types
+    /// seems like a hassle
+    pub unsafe fn add_allocate(&mut self){
+        todo!("this is not implemented properly. Thereafter, delete the `unsafe` keyword plz");
+        // void allocate<T>(T* ptr) // appoints a pointer T* to ptr which is allocated on the heap
+        // it is equivalent to ptr = malloc(ptr, sizeof(ptr))
+        let func = self.register_func_unnamed_params("allocate", Type::Void, vec![Type::VoidPtr]);
+
+        let fblock = self.context.append_basic_block(func, "block");
+        self.builder.position_at_end(fblock);
+        let sizeof = func.get_first_param().unwrap()
+            .as_any_value_enum().get_type()
+            .size_of().expect("if this raises, its either because sizeof(void) or sizeof(function)");
+        todo!("we want sizeof to be the size of the pointee, however currently it is the size of a pointer (i.e., 8 bytes on 64-bit systems)");
+
+        let malloc = self.module.get_function("malloc").unwrap();
+
+        let pcall = self.builder.build_direct_call(
+            malloc, 
+            &[
+                func.get_first_param().unwrap().into(),
+                sizeof.into()
+            ], 
+            "malloc_p_sizeof_p").unwrap();
+        self.builder.build_store(func.get_first_param().unwrap().into_pointer_value(), pcall.try_as_basic_value().left().expect("expected a return value from function"));
+        self.builder.build_return(None);
     }
     pub fn add_time(&mut self){
         self.register_extern_func("time", Type::Int, vec![Type::Int]);
