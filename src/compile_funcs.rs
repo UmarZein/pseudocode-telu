@@ -13,7 +13,7 @@ use inkwell::{
 
 use inkwell::builder::Builder;
 use inkwell::types::{BasicMetadataTypeEnum, FunctionType, BasicTypeEnum, BasicType, PointerType, StructType};
-use inkwell::values::{BasicMetadataValueEnum, BasicValueEnum, FloatValue, FunctionValue, StructValue, PointerValue, BasicValue, InstructionOpcode, AsValueRef, InstructionValue};
+use inkwell::values::{AnyValue, AsValueRef, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, InstructionOpcode, InstructionValue, PointerValue, StructValue};
 use inkwell::FloatPredicate;
 
 use pest::Parser;
@@ -125,7 +125,8 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
         info!("done printing pairs");
         let main_fn = self.register_func_unnamed_params("main", Type::Int, vec![]);
         self.context.append_basic_block(main_fn, "mainf_entry");
-        //TODO uncomment this: self.add_alloc();
+        self.add_malloc();
+        //self.add_allocate();
         self.add_printf();
         self.add_scanf();
         self.add_output();
@@ -396,9 +397,35 @@ impl<'a, 'ctx> Codegen<'a, 'ctx> where 'ctx:'a{
         };
         func
     }
-    pub fn add_alloc(&mut self){
-        // malloc
+    pub fn add_malloc(&mut self){
         self.register_extern_func("malloc", Type::VoidPtr, vec![Type::Int]);
+    }
+    /// TODO: add_allocate is dependent on add_malloc. Dunno how to enforce this. Phantom types
+    /// seems like a hassle
+    pub unsafe fn add_allocate(&mut self){
+        todo!("this is not implemented properly. Thereafter, delete the `unsafe` keyword plz");
+        // void allocate<T>(T* ptr) // appoints a pointer T* to ptr which is allocated on the heap
+        // it is equivalent to ptr = malloc(ptr, sizeof(ptr))
+        let func = self.register_func_unnamed_params("allocate", Type::Void, vec![Type::VoidPtr]);
+
+        let fblock = self.context.append_basic_block(func, "block");
+        self.builder.position_at_end(fblock);
+        let sizeof = func.get_first_param().unwrap()
+            .as_any_value_enum().get_type()
+            .size_of().expect("if this raises, its either because sizeof(void) or sizeof(function)");
+        todo!("we want sizeof to be the size of the pointee, however currently it is the size of a pointer (i.e., 8 bytes on 64-bit systems)");
+
+        let malloc = self.module.get_function("malloc").unwrap();
+
+        let pcall = self.builder.build_direct_call(
+            malloc, 
+            &[
+                func.get_first_param().unwrap().into(),
+                sizeof.into()
+            ], 
+            "malloc_p_sizeof_p").unwrap();
+        self.builder.build_store(func.get_first_param().unwrap().into_pointer_value(), pcall.try_as_basic_value().left().expect("expected a return value from function"));
+        self.builder.build_return(None);
     }
     pub fn add_time(&mut self){
         self.register_extern_func("time", Type::Int, vec![Type::Int]);

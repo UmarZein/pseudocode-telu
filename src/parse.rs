@@ -173,7 +173,7 @@ pub fn parse_expr(pairs: Pairs<Rule>) -> Expr {
                 let mut i = primary.into_inner();
                 let first = i.next().unwrap();
                 let mut expr = match first.as_rule(){
-                    R::expr => parse_expr(first.into_inner()),
+                    R::expr | R::enclosed_expr => parse_expr(first.into_inner()),
                     R::ident => E::Ident(first.as_str().to_string()),
 
                     // TODO: this, the statement hereunder, is not enforced correctly...

@@ -1,22 +1,35 @@
-type cat: car
-type car: integer
-
-type yeah: <
-    member1: cat,
-    member2: pointer to yeah,
-    member3: car
->
+function isPrime(n: integer) -> bool
+kamus 
+    i: integer 
+algoritma 
+    i <- 2
+    while (i*i-1<n)do 
+        if (n mod i) == 0 then 
+            return false 
+        endif
+        i <- i+1 
+    endwhile
+    return n>1
+endfunction
 
 program tugas_keamanan_data
 kamus
-    kucing: cat
-    koko: car
-    yogi: yeah
+    i, x, ncalls: integer
+    start_time: integer
+    divisor: integer 
 algoritma 
-    kucing <- 100
-    koko <- kucing*100 -1
-    yogi.member1 <- koko-kucing
-    yogi.member3 <- yogi.member1*2
-    output(kucing, koko, yogi.member1, yogi.member3)
+    ncalls <- 0
+    divisor <- 1000
+    input(x)
+    start_time <- time(0)
+    while time(0)-start_time<=10 do 
+        i<-0
+        while i<divisor do 
+            i <- i+1 
+            isPrime(x)
+            ncalls <- ncalls + 1
+        endwhile 
+    endwhile
+    output("ncalls:",ncalls)
     return 1
 endprogram

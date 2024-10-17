@@ -127,8 +127,8 @@ dot_arg = {
 linear_expr = { 
     ( ident | literal | enclosed_expr ) ~ (round_brackets_args|square_brackets_args|dot_arg)*
 }
-enclosed_expr = _{ "(" ~ expr ~ ")" }
-ident = @{ primitives?~keywords?~!NUMBER ~ (ASCII_ALPHANUMERIC | "_")+ }
+enclosed_expr = { "(" ~ expr ~ ")" }
+ident = @{ !(literal~!ident) ~ (primitives?~keywords?~!NUMBER ~ (ASCII_ALPHANUMERIC | "_")+) }
 expr =   { prefix? ~ primary ~ postfix? ~ (infix ~ prefix? ~ primary ~ postfix? )* }
 infix =  _{ 
     add | sub | mul 
@@ -136,15 +136,15 @@ infix =  _{
     | le | lt| equ | mdl
     | land | lor 
 }
-not = { "not" } // Logical Not
-land = { "and" } // Logical And
-lor = { "or" } // Logical Or
+not = @{ "not" ~ !ident } // Logical Not
+land = @{ "and" ~ !ident } // Logical And
+lor = @{ "or" ~ !ident } // Logical Or
 add = { "+" } // Addition
 sub = { "-" } // Subtraction
 mul = { "*" } // Multiplication
 div = { "/" } // Division
-idv = { "div" } // integer Division
-mdl = { "mod" } // integer Division
+idv = @{ "div" ~ !ident } // integer Division
+mdl = @{ "mod" ~ !ident } // integer Division
 neq = { "!=" } // Not Equal
 equ = { "==" } // Equal
 pow = { "^" } // Exponentiation
